@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Ludo Dhamaal</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="config.js"></script>
+<script src="lib/three.min.js"></script>
+</head>
+<body>
+
+<section id="splash" class="screen show">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+  <div class="bigdice"><i></i><i class="r"></i><i></i><i class="r"></i><i class="red"></i><i class="r"></i><i></i><i class="r"></i><i></i></div>
+  <div class="logo"><div class="l1">Ludo</div><div class="l2">Dhamaal</div><div class="tag">Let's play!</div></div>
+  <div class="crowd" id="splashCrowd"></div>
+  <div class="loadbar"><div id="loadFill"></div></div>
+  <div class="small muted" id="loadText">Setting up the board...</div>
+</section>
+
+<section id="profile" class="screen">
+  <div class="pad col gap16 full">
+    <div><h1>Create your player</h1><p class="muted">Your friends will see this name and look</p></div>
+    <div class="bigav" id="pfPreview"></div>
+    <label class="lbl" for="pfName">Your name</label>
+    <input id="pfName" class="input" maxlength="14" placeholder="e.g. Rahul" autocomplete="off">
+    <div class="err" id="pfErr"></div>
+    <div class="lbl">Choose a look</div>
+    <div class="grid4" id="pfLooks"></div>
+    <div class="lbl">Favourite colour</div>
+    <div class="row gap12" id="pfColors"></div>
+    <button class="btn gold mt-auto" id="pfSave">Continue</button>
+  </div>
+</section>
+
+<section id="home" class="screen">
+  <div class="pad col gap16 full">
+    <div class="row between">
+      <div class="row gap10"><div class="av sm" id="homeAv"></div><div class="col"><span class="small muted">Hello,</span><b class="name" id="homeName"></b></div></div>
+      <button class="iconbtn" id="homeSettings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    </div>
+    <div class="logo sm"><div class="l1">Ludo</div><div class="l2">Dhamaal</div></div>
+    <div class="col gap14" id="modes"></div>
+  </div>
+</section>
+
+<section id="setup" class="screen">
+  <div class="pad col gap16 full">
+    <div class="row gap12"><button class="iconbtn back" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 id="setupTitle">Play vs computer</h2></div>
+    <div class="lbl">How many players?</div>
+    <div class="row gap12" id="setupCount"></div>
+    <div class="col gap10" id="setupNames"></div>
+    <button class="btn gold mt-auto" id="setupGo">Start game</button>
+  </div>
+</section>
+
+<section id="join" class="screen">
+  <div class="pad col gap16 full">
+    <div class="row gap12"><button class="iconbtn back" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2>Join a room</h2></div>
+    <label class="lbl" for="joinCode">Room code</label>
+    <input id="joinCode" class="input code" maxlength="5" placeholder="K7M2Q" autocomplete="off" autocapitalize="characters">
+    <div class="err" id="joinErr"></div>
+    <button class="btn gold mt-auto" id="joinGo">Join</button>
+  </div>
+</section>
+
+<section id="lobby" class="screen">
+  <div class="pad col gap16 full">
+    <div class="row gap12"><button class="iconbtn" id="lobbyBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2>Your room</h2><span class="pill" id="netState"></span></div>
+    <div class="codebox">
+      <span class="small muted">Room code</span>
+      <span class="bigcode" id="lobbyCode">-----</span>
+      <div class="row gap10 w100">
+        <button class="btn wa grow" id="lobbyShare"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 21l2.1-5.5A8.4 8.4 0 1 1 21 11.5z"/></svg>Share on WhatsApp</button>
+        <button class="iconbtn round" id="lobbyCopy" aria-label="Copy code"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+      </div>
+    </div>
+    <b id="lobbyCount">Players</b>
+    <div class="col gap10" id="lobbyPlayers"></div>
+    <div class="row gap12 mt-auto">
+      <button class="micbtn" id="lobbyMic" aria-label="Mic"></button>
+      <button class="btn gold grow" id="lobbyStart">Start game</button>
+    </div>
+  </div>
+</section>
+
+<section id="game" class="screen">
+  <canvas id="board"></canvas>
+  <div class="gtop">
+    <button class="iconbtn" id="gameLeave" aria-label="Leave game"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <span class="small muted" id="gameRoom"></span>
+    <button class="iconbtn" id="gameSound" aria-label="Sound"><svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg></button>
+  </div>
+  <div class="cards top" id="cardsTop"></div>
+  <div class="cards bottom" id="cardsBottom"></div>
+  <div class="toast" id="toast"></div>
+  <div class="bubbles" id="bubbles"></div>
+  <div class="gbar">
+    <button class="micbtn" id="gameMic" aria-label="Mic"></button>
+    <div class="col center">
+      <button class="dicebtn" id="diceBtn" aria-label="Roll dice"></button>
+      <span class="turn" id="turnText"></span>
+    </div>
+    <button class="iconbtn round big" id="emojiBtn" aria-label="Send emoji"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></button>
+  </div>
+  <div class="emojis" id="emojiPick"></div>
+</section>
+
+<section id="win" class="screen">
+  <div class="confetti" id="winConf"></div>
+  <div class="pad col center gap14 full">
+    <svg class="trophy" viewBox="0 0 64 64"><path d="M18 8h28v14a14 14 0 0 1-28 0z" fill="#FFC21A" stroke="#8A5A00" stroke-width="2"/><path d="M18 12H9a9 9 0 0 0 9 12M46 12h9a9 9 0 0 1-9 12" fill="none" stroke="#FFC21A" stroke-width="4"/><rect x="28" y="36" width="8" height="10" fill="#E3A500"/><rect x="20" y="46" width="24" height="8" rx="2" fill="#FFC21A" stroke="#8A5A00" stroke-width="2"/></svg>
+    <h1 class="wintitle" id="winTitle">You won!</h1>
+    <p class="muted" id="winSub"></p>
+    <div class="podium" id="podium"></div>
+    <div class="col gap10" id="winRest"></div>
+    <div class="col gap10 w100 mt-auto">
+      <button class="btn gold" id="winAgain">Play again</button>
+      <button class="btn ghost" id="winHome">Back to home</button>
+    </div>
+  </div>
+</section>
+
+<section id="settings" class="screen">
+  <div class="pad col gap16 full">
+    <div class="row gap12"><button class="iconbtn" id="setBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2>Settings</h2></div>
+    <div class="col gap10" id="setRows"></div>
+    <button class="rowbtn" id="setProfile">Edit name and look<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+    <button class="rowbtn" id="setRules">How to play<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+    <span class="small muted center mt-auto">Ludo Dhamaal · Version <span id="ver">1.0</span></span>
+  </div>
+</section>
+
+<div class="modal" id="modal"><div class="sheet" id="modalBox"></div></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

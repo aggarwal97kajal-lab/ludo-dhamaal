@@ -1,0 +1,9 @@
+<resources>
+    <color name="ld_bg">#160D3D</color>
+    <style name="Theme.Ludo" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/ld_bg</item>
+        <item name="android:statusBarColor">@color/ld_bg</item>
+        <item name="android:navigationBarColor">@color/ld_bg</item>
+        <item name="colorPrimary">#FFC21A</item>
+    </style>
+</resources>

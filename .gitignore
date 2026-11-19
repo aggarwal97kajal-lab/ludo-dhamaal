@@ -1,0 +1,9 @@
+app/build/
+.gradle/
+build/
+local.properties
+node_modules/
+server/node_modules/
+server/.wrangler/
+app/src/main/assets/www/lib/Baloo2.ttf
+*.apk

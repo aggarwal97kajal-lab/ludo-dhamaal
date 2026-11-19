@@ -1,0 +1,48 @@
+name: Build APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: apk
+  cancel-in-progress: true
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.9" }
+      - name: Get 3D library and font
+        run: |
+          set -e
+          mkdir -p app/src/main/assets/www/lib
+          test -s app/src/main/assets/www/lib/three.min.js || curl -fsSL https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js -o app/src/main/assets/www/lib/three.min.js
+          curl -fsSL "https://github.com/google/fonts/raw/main/ofl/baloo2/Baloo2%5Bwght%5D.ttf" -o app/src/main/assets/www/lib/Baloo2.ttf || echo "font skipped"
+          ls -la app/src/main/assets/www/lib
+      - name: Put the online server address in the app
+        run: |
+          if [ -s server_url.txt ]; then
+            URL=$(tr -d ' \n\r' < server_url.txt)
+            sed -i "s#server: ''#server: '$URL'#" app/src/main/assets/www/config.js
+          fi
+          sed -i "s#version: '1.0'#version: '1.0.${{ github.run_number }}'#" app/src/main/assets/www/config.js
+          cat app/src/main/assets/www/config.js
+      - name: Build
+        run: gradle assembleRelease --no-daemon --stacktrace
+      - name: Rename
+        run: cp app/build/outputs/apk/release/app-release.apk LudoDhamaal.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: LudoDhamaal-apk, path: LudoDhamaal.apk }
+      - name: Publish download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Ludo Dhamaal 1.0.${{ github.run_number }}
+          body: Download LudoDhamaal.apk below and install it on your phone.
+          files: LudoDhamaal.apk
+          make_latest: true
