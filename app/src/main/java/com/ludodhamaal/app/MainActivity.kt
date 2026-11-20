@@ -94,6 +94,8 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatcher, null)
+
         if (savedInstanceState != null) web.restoreState(savedInstanceState)
         else web.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")
     }
@@ -115,23 +117,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        try { (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceWatcher) } catch (e: Exception) { }
+        super.onDestroy()
+    }
+
     override fun onPause() { super.onPause(); web.onPause() }
     override fun onResume() { super.onResume(); web.onResume(); useLoudspeaker() }
 
-    // Voice chat runs in "call" mode, which plays through the small earpiece by default.
-    // Send it to the loudspeaker so friends can be heard while the phone is held for the game.
+    // Voice chat runs in "call" mode. Play it through headphones / Bluetooth when they are
+    // connected, otherwise through the loudspeaker (call mode defaults to the small earpiece).
+    private val headsetTypes = setOf(
+        AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+    ) + (if (Build.VERSION.SDK_INT >= 31) setOf(AudioDeviceInfo.TYPE_BLE_HEADSET) else emptySet())
+
     private fun useLoudspeaker() {
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             am.mode = AudioManager.MODE_IN_COMMUNICATION
             if (Build.VERSION.SDK_INT >= 31) {
-                val speaker = am.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-                if (speaker != null) am.setCommunicationDevice(speaker)
+                val devices = am.availableCommunicationDevices
+                val pick = devices.firstOrNull { it.type in headsetTypes }
+                    ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                if (pick != null) am.setCommunicationDevice(pick)
             } else {
+                val outs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                val wired = outs.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_USB_HEADSET }
+                val bt = outs.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
                 @Suppress("DEPRECATION")
-                am.isSpeakerphoneOn = true
+                if (bt && !wired) { am.isSpeakerphoneOn = false; am.startBluetoothSco(); am.isBluetoothScoOn = true }
+                else am.isSpeakerphoneOn = !wired
             }
         } catch (e: Exception) { /* keep default routing */ }
+    }
+
+    // Re-route when headphones are plugged in or taken out during a game.
+    private val deviceWatcher = object : android.media.AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) { useLoudspeaker() }
+        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) { useLoudspeaker() }
     }
 
     private fun openOutside(url: Uri) {
@@ -140,7 +164,7 @@ class MainActivity : AppCompatActivity() {
 
     inner class Bridge {
         @JavascriptInterface
-        fun speaker() { runOnUiThread { useLoudspeaker() } }
+        fun speaker() { runOnUiThread { useLoudspeaker() } } // picks headphones if connected, else loudspeaker
 
         @JavascriptInterface
         fun copy(text: String) {
