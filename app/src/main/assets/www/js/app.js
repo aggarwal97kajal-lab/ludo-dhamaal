@@ -152,6 +152,17 @@ function toast(text, color) {
   t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1300);
 }
 
+let diceSpin = null;
+function spinDiceFace() {
+  stopDiceSpin();
+  $('diceBtn').classList.add('spin');
+  diceSpin = setInterval(() => setDiceFace(1 + Math.floor(Math.random() * 6)), 90);
+}
+function stopDiceSpin(v) {
+  if (diceSpin) clearInterval(diceSpin); diceSpin = null;
+  $('diceBtn').classList.remove('spin');
+  if (v) setDiceFace(v);
+}
 function setDiceFace(v) {
   const on = { 0: [], 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] }[v || 0];
   const face = v || 5;
@@ -230,7 +241,8 @@ function armTimer() {
 let lastTick = 0;
 setInterval(() => {
   if (!G || current !== 'game' || !G.s) { $('tfill').style.width = '0'; return; }
-  $('turnText').textContent = turnLabel();
+  if (G.busy && board && !board.tweens.length && !diceSpin) { G.stuck = (G.stuck || 0) + 250; if (G.stuck > 6000) { G.busy = false; G.stuck = 0; } } else G.stuck = 0;
+  refreshDice();
   const left = G.turnEnds ? G.turnEnds - Date.now() : null;
   const fill = $('tfill');
   if (left == null || G.s.over) fill.style.width = '0';
@@ -252,7 +264,8 @@ function timeUp() {
 }
 
 function myTurnToRoll() {
-  if (!G || G.busy) return false;
+  if (!G || G.busy || !G.s) return false;
+  if (G.mode === 'online' && G.rollSent && Date.now() - G.rollSent < 3000) return false;
   const s = G.s; if (s.over || s.rolled) return false;
   const p = playerOf(s, s.turn);
   if (G.mode === 'online') return p.id === pid;
@@ -285,13 +298,16 @@ function enterGame(mode) {
   renderCards(); refreshDice();
 }
 
-$('diceBtn').onclick = () => {
+function tapDice(e) {
+  if (e) e.preventDefault();
   if (!myTurnToRoll()) return;
   sfx('click');
   $('diceBtn').disabled = true; $('diceBtn').classList.remove('ready');
-  if (G.mode === 'online') G.net.send({ t: 'roll' });
+  if (G.mode === 'online') { G.rollSent = Date.now(); G.net.send({ t: 'roll' }); }
   else offlineRoll();
-};
+}
+$('diceBtn').addEventListener('pointerdown', tapDice);
+$('diceBtn').addEventListener('click', e => e.preventDefault());
 
 $('gameLeave').onclick = () => leaveGame();
 // Speaker button in the game: one tap mutes all sound and music, the icon shows the state.
@@ -340,8 +356,9 @@ async function offlineRoll() {
   const d = 1 + Math.floor(Math.random() * 6);
   const r = roll(s, d);
   if (!r) { G.busy = false; return; }
-  setDiceFace(d);
+  spinDiceFace();
   await board.throwDice(d, sfx);
+  stopDiceSpin(d);
   const p = playerOf(s, s.turn);
   if (r.forfeit) { note('Three 6s, turn lost'); await board.wait(900); passTurn(s); return afterMove(); }
   if (!r.moves.length) { note('No move'); await board.wait(700); passTurn(s); return afterMove(); }
@@ -420,7 +437,18 @@ function openRoom(code) {
   if (G && G.net) endOnline();
   G = { mode: 'online', code, lobby: [], host: false, s: null, busy: false, speaking: new Set(), q: Promise.resolve(), chat: [], unread: 0 };
   setBadges();
-  G.net = new Net({ message: m => { const g = G; if (!g || !g.net) return; g.q = g.q.then(() => onNet(m)).catch(err => console.error(err)); }, status: st => setNetState(st) });
+  G.net = new Net({
+    message: m => {
+      const g = G; if (!g || !g.net) return;
+      if (m.t === 'pong') return;
+      // Voice messages never wait in (or block) the game's queue.
+      if (m.t === 'rtc') { if (g.voice) g.voice.signal(m.from, m.data).catch(() => {}); return; }
+      // A full resync replaces whatever was still waiting, so a stuck animation can't block the game.
+      if (m.t === 'sync') { board && board.clearHighlight(); stopDiceSpin(); g.q = Promise.resolve(); }
+      g.q = g.q.then(() => onNet(m)).catch(err => console.error(err));
+    },
+    status: st => { if (st !== 'online' && G) G.wasOffline = true; setNetState(st); }
+  });
   G.voice = new Voice((to, data) => G && G.net && G.net.send({ t: 'rtc', to, data }), (who, on) => { if (!G) return; if (on) G.speaking.add(who); else G.speaking.delete(who); if (current === 'lobby') renderLobby(); else renderCards(); });
   G.voice.setListen(settings.listen);
   G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (current === 'game') renderCards(); };
@@ -504,11 +532,15 @@ async function onNet(m) {
   switch (m.t) {
     case 'lobby': {
       const wasHost = G.host;
+      const before = {}; (G.lobby || []).forEach(p => { before[p.pid] = p.connected; });
       G.lobby = m.players; G.host = m.host === pid;
+      const live = m.players.filter(p => p.connected && !p.left).map(p => p.pid);
+      if (G.wasOffline) { G.wasOffline = false; G.voice.restart(live); }
+      else m.players.forEach(p => { if (p.pid !== pid && p.connected && before[p.pid] === false) G.voice.restart([p.pid]); });
       if (G.host && !wasHost && G.hostKnown) toast('You are now the host', '#3A2490');
       G.hostKnown = true;
       if (current === 'win') $('winAgain').style.display = G.host ? 'flex' : 'none';
-      G.voice.sync(m.players.filter(p => p.connected).map(p => p.pid));
+      G.voice.sync(live);
       if (current === 'lobby') renderLobby();
       if (current === 'game') renderCards();
       break;
@@ -527,9 +559,10 @@ async function onNet(m) {
       if (m.s.rolled && playerOf(m.s, m.s.turn).id === pid && m.moves && m.moves.length) pickOnline(m.moves);
       break;
     case 'rolled': {
-      G.busy = true; refreshDice();
-      setDiceFace(m.dice);
+      G.busy = true; G.rollSent = 0; refreshDice();
+      spinDiceFace();
       await board.throwDice(m.dice, sfx);
+      stopDiceSpin(m.dice);
       G.s = m.s; G.turnEnds = m.turnEnds; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       const mine = playerOf(G.s, G.s.turn).id === pid;
       if (m.forfeit) note('Three 6s, turn lost');

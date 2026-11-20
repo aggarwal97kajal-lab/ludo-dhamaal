@@ -71,13 +71,13 @@ export class Voice {
     });
   }
 
-  makePeer(pid) {
+  makePeer(pid, cid) {
     const pc = new RTCPeerConnection({ iceServers: ICE });
-    const peer = { pc, audio: null, an: null, speaking: false };
+    const peer = { pc, cid, audio: null, an: null, speaking: false };
     this.peers.set(pid, peer);
     if (this.local) this.local.getTracks().forEach(t => pc.addTrack(t, this.local));
     else pc.addTransceiver('audio', { direction: 'recvonly' });
-    pc.onicecandidate = e => { if (e.candidate) this.send(pid, { ice: e.candidate }); };
+    pc.onicecandidate = e => { if (e.candidate) this.send(pid, { ice: e.candidate, cid }); };
     pc.ontrack = e => {
       if (peer.audio) { peer.audio.srcObject = null; peer.audio.remove(); }
       const a = document.createElement('audio'); a.autoplay = true; a.setAttribute('playsinline', ''); a.srcObject = e.streams[0];
@@ -93,22 +93,31 @@ export class Voice {
     pc.onconnectionstatechange = () => {
       if (this.onState) this.onState(pid, pc.connectionState);
       if (pc.connectionState === 'failed' && this.me < pid) { this.drop(pid); this.call(pid); }
+      // A call that stays broken for a few seconds is rebuilt from scratch.
+      if (pc.connectionState === 'disconnected') setTimeout(() => { if (this.peers.get(pid) && this.peers.get(pid).pc === pc && pc.connectionState !== 'connected') this.restart([pid]); }, 5000);
     };
     return peer;
   }
 
   async call(pid) {
-    const { pc } = this.makePeer(pid);
+    const cid = Math.random().toString(36).slice(2, 10);
+    const { pc } = this.makePeer(pid, cid);
+    // If the call has not connected after a while (a lost message), start it again.
+    setTimeout(() => { const p = this.peers.get(pid); if (p && p.pc === pc && pc.connectionState !== 'connected') this.restart([pid]); }, 9000);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    this.send(pid, { sdp: pc.localDescription });
+    this.send(pid, { sdp: pc.localDescription, cid });
   }
 
   // Rebuild every call (used when the mic becomes available after calls started).
-  restart() {
-    for (const pid of [...this.peers.keys()]) {
+  restart(pids) {
+    if (!this.me) return;
+    const list = pids || [...this.peers.keys()];
+    for (const pid of list) {
+      if (pid === this.me) continue;
+      // Only the player with the smaller id starts a call, so two calls never cross.
       this.drop(pid);
-      if (this.me < pid) this.call(pid); else this.send(pid, { redo: true });
+      if (this.me < pid) this.call(pid);
     }
   }
 
@@ -118,17 +127,18 @@ export class Voice {
     if (data.sdp) {
       if (data.sdp.type === 'offer') {
         if (this.peers.has(from)) this.drop(from);
-        const { pc } = this.makePeer(from);
+        const { pc } = this.makePeer(from, data.cid);
         await pc.setRemoteDescription(data.sdp);
         const ans = await pc.createAnswer();
         await pc.setLocalDescription(ans);
-        this.send(from, { sdp: pc.localDescription });
+        this.send(from, { sdp: pc.localDescription, cid: data.cid });
       } else {
-        const p = this.peers.get(from); if (p) await p.pc.setRemoteDescription(data.sdp);
+        const p = this.peers.get(from);
+        if (p && p.cid === data.cid && p.pc.signalingState === 'have-local-offer') await p.pc.setRemoteDescription(data.sdp);
       }
     } else if (data.ice) {
       const p = this.peers.get(from);
-      if (p) { try { await p.pc.addIceCandidate(data.ice); } catch (e) { /* late candidate */ } }
+      if (p && p.cid === data.cid) { try { await p.pc.addIceCandidate(data.ice); } catch (e) { /* late candidate */ } }
     }
   }
 

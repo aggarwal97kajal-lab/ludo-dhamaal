@@ -104,6 +104,7 @@ export class Room {
     if (!me) return;
     const p = this.players.find(x => x.pid === me);
     switch (m.t) {
+      case 'ping': this.send(ws, { t: 'pong' }); break;
       case 'mic': p.mic = !!m.on; this.lobby(); break;
       case 'start': this.start(me); break;
       case 'roll': this.doRoll(me); break;
