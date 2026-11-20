@@ -215,5 +215,6 @@ img.body { display: block; width: auto; pointer-events: none; }
 .spin { width: 16px; height: 16px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .3); border-top-color: #fff; animation: rot .8s linear infinite; }
 @keyframes rot { to { transform: rotate(360deg); } }
 
-.dicebtn.spin { animation: dshake .18s linear infinite; }
+.dicebtn.rolling, .dicebtn.rolling:disabled { opacity: 1; animation: droll .5s linear infinite; }
+@keyframes droll { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(180deg) scale(1.08); } 100% { transform: rotate(360deg) scale(1); } }
 @keyframes dshake { 0% { transform: rotate(-12deg); } 50% { transform: rotate(12deg) scale(1.05); } 100% { transform: rotate(-12deg); } }

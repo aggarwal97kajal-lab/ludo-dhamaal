@@ -155,12 +155,12 @@ function toast(text, color) {
 let diceSpin = null;
 function spinDiceFace() {
   stopDiceSpin();
-  $('diceBtn').classList.add('spin');
+  $('diceBtn').classList.add('rolling');
   diceSpin = setInterval(() => setDiceFace(1 + Math.floor(Math.random() * 6)), 90);
 }
 function stopDiceSpin(v) {
   if (diceSpin) clearInterval(diceSpin); diceSpin = null;
-  $('diceBtn').classList.remove('spin');
+  $('diceBtn').classList.remove('rolling');
   if (v) setDiceFace(v);
 }
 function setDiceFace(v) {
@@ -168,7 +168,9 @@ function setDiceFace(v) {
   const face = v || 5;
   const pips = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] }[face];
   void on;
-  $('diceBtn').innerHTML = Array.from({ length: 9 }, (_, i) => `<i class="${pips.includes(i) ? '' : 'r'}" ${face === 1 && i === 4 ? 'style="background:#E0103A"' : ''}></i>`).join('');
+  const btn = $('diceBtn');
+  if (btn.children.length === 9) { [...btn.children].forEach((el, i) => { el.className = pips.includes(i) ? '' : 'r'; el.style.background = face === 1 && i === 4 ? '#E0103A' : ''; }); return; }
+  btn.innerHTML = Array.from({ length: 9 }, (_, i) => `<i class="${pips.includes(i) ? '' : 'r'}" ${face === 1 && i === 4 ? 'style="background:#E0103A"' : ''}></i>`).join('');
 }
 
 function renderCards() {
@@ -272,6 +274,7 @@ function myTurnToRoll() {
   return p.kind === 'me';
 }
 function refreshDice() {
+  if (diceSpin) { $('turnText').textContent = turnLabel(); return; }
   const ok = myTurnToRoll();
   $('diceBtn').disabled = !ok;
   $('diceBtn').classList.toggle('ready', ok);

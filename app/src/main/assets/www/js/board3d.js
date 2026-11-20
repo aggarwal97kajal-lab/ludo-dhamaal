@@ -64,7 +64,7 @@ export class Board3D {
     this.S = new T.Scene();
     this.S.background = new T.Color('#120a33');
     this.S.fog = new T.Fog('#120a33', 36, 75);
-    this.cam = new T.PerspectiveCamera(44, 1, 0.1, 200);
+    this.cam = new T.PerspectiveCamera(44, 1, 0.5, 120);
     this.th = 0; this.ph = 0.74; this.rad = 30;
     this.tweens = [];
     this.people = [[], [], [], []];
@@ -147,7 +147,7 @@ export class Board3D {
     fl.rotation.x = -Math.PI / 2; fl.position.y = -1.4; fl.receiveShadow = true; S.add(fl);
     const gold = M('#ffc21a', { metalness: 0.9, roughness: 0.2 });
     mk(ext(rr(16.6, 16.6, 0.9), 0.5, 0.12), M('#3b1d8f', { roughness: 0.3 }), 0, -0.62, 0);
-    mk(ext(frame(17.6, 16.4, 1.2, 0.8), 0.55, 0.1), gold, 0, -0.65, 0);
+    mk(ext(frame(17.6, 16.2, 1.2, 0.8), 0.55, 0.1), gold, 0, -0.55, 0); // frame top sits 0.1 above the slab: no shared faces, no flicker
     mk(new T.CylinderGeometry(7, 8, 0.7, 48), M('#2a1270', { metalness: 0.3 }), 0, -1.1, 0);
 
     const tG = ext(rr(0.86, 0.86, 0.16), 0.06, 0.035), wM = M('#ffffff', { roughness: 0.3 });
