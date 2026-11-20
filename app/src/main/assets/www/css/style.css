@@ -201,3 +201,5 @@ img.body { display: block; width: auto; pointer-events: none; }
 .saybub { position: absolute; max-width: 170px; padding: 6px 12px; border-radius: 14px; background: #fff; color: #1a1050; font-size: 14px; font-weight: 700; z-index: 6; pointer-events: none; animation: saypop 3.2s ease forwards; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .saybub.big { font-size: 30px; background: transparent; padding: 0; }
 @keyframes saypop { 0% { opacity: 0; transform: scale(.6); } 10% { opacity: 1; transform: scale(1.05); } 15% { transform: scale(1); } 85% { opacity: 1; } 100% { opacity: 0; transform: translateY(-14px); } }
+
+#gameSound.off { color: #ff8fa3; }

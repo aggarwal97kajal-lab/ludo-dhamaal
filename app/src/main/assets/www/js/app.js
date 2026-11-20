@@ -256,10 +256,23 @@ $('diceBtn').onclick = () => {
 };
 
 $('gameLeave').onclick = () => leaveGame();
+// Speaker button in the game: one tap mutes all sound and music, the icon shows the state.
+const SPK_ON = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>';
+const SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>';
+function syncSpeaker() {
+  const on = settings.sound || settings.music;
+  $('gameSound').innerHTML = on ? SPK_ON : SPK_OFF;
+  $('gameSound').setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
+  $('gameSound').classList.toggle('off', !on);
+}
 $('gameSound').onclick = () => {
-  settings.sound = !settings.sound; prefs.sound = settings.sound; store.set('settings', settings);
-  toast(settings.sound ? 'Sound on' : 'Sound off', '#3A2490');
+  const on = !(settings.sound || settings.music);
+  settings.sound = on; settings.music = on;
+  Object.assign(prefs, { sound: on, music: on }); store.set('settings', settings);
+  music(on && current !== 'game'); if (on) sfx('click');
+  syncSpeaker();
 };
+syncSpeaker();
 function leaveGame() {
   confirmBox('Leave the game?', G && G.mode === 'online' ? 'You can come back with the same room code while the game is on.' : 'This game will end.', 'Leave', 'Stay', () => {
     if (G && G.mode === 'online') endOnline();
@@ -575,6 +588,7 @@ $('setRows').addEventListener('change', e => {
   settings[k] = e.target.checked; store.set('settings', settings);
   Object.assign(prefs, { sound: settings.sound, music: settings.music, vibrate: settings.vibrate });
   if (k === 'music') music(settings.music);
+  syncSpeaker();
   if (k === 'listen' && G && G.voice) G.voice.setListen(settings.listen);
   sfx('click');
 });
