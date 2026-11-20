@@ -273,3 +273,5 @@ img.body { display: block; width: auto; pointer-events: none; }
 .gamecard.snakes { background: linear-gradient(135deg, #16a34a, #065f46); border-color: #86efac; color: #fff; }
 .gamecard.snakes .play { background: #fde047; color: #065f46; }
 .gamecard .t { font-size: 30px; }
+.biglogo { width: 150px; height: 150px; border-radius: 50%; box-shadow: 0 10px 40px rgba(255, 194, 26, .35); animation: logopop 2.4s ease-in-out infinite; }
+@keyframes logopop { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.04); } }
