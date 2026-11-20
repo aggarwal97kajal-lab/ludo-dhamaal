@@ -171,7 +171,7 @@ export class Board3D {
 
     // Dust & confetti pools
     this.dust = [];
-    for (let i = 0; i < 14; i++) { const m = new T.Mesh(new T.SphereGeometry(0.1, 8, 6), new T.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0 })); S.add(m); this.dust.push({ m, l: 0, vx: 0, vz: 0 }); }
+    for (let i = 0; i < 14; i++) { const m = new T.Mesh(new T.SphereGeometry(0.07, 8, 6), new T.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false })); m.renderOrder = 1; S.add(m); this.dust.push({ m, l: 0, vx: 0, vz: 0 }); }
     this.conf = [];
     const cg = new T.PlaneGeometry(0.14, 0.08), cc = ['#ff1744', '#00e676', '#ffd600', '#2979ff', '#ff4fd8', '#ffffff'];
     for (let i = 0; i < 90; i++) { const m = new T.Mesh(cg, new T.MeshBasicMaterial({ color: cc[i % 6], side: 2 })); m.visible = false; S.add(m); this.conf.push({ m, v: new T.Vector3(), l: 0 }); }
@@ -199,8 +199,8 @@ export class Board3D {
     const g = new T.Group();
     const shadow = new T.Mesh(this.shadowG, this.shadowM); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; g.add(shadow);
     const ring = new T.Mesh(this.baseG, this.mat(TEAM[color], { emissive: TEAM[color], emissiveIntensity: 0.35 })); ring.position.y = 0.03; g.add(ring);
-    const mat = new T.SpriteMaterial({ map: this.charTex(color), alphaTest: 0.35, transparent: true });
-    const sp = new T.Sprite(mat); sp.center.set(0.5, 0); g.add(sp);
+    const mat = new T.SpriteMaterial({ map: this.charTex(color), alphaTest: 0.5, transparent: false });
+    const sp = new T.Sprite(mat); sp.center.set(0.5, 0); sp.renderOrder = 3; g.add(sp);
     sp.userData.owner = g;
     const H = 1.9;
     const u = g.userData = { color, sp, ph: Math.random() * 6, hop: 2 + Math.random() * 5, flip: 1, sq: 1, tilt: 0 };
@@ -349,7 +349,7 @@ export class Board3D {
 
   puff(x, z) {
     let n = 0;
-    this.dust.forEach(d => { if (d.l <= 0 && n < 7) { const a = n * 0.9 + Math.random(); d.m.position.set(x, 0.15, z); d.vx = Math.cos(a) * 1.4; d.vz = Math.sin(a) * 1.4; d.l = 0.45; n++; } });
+    this.dust.forEach(d => { if (d.l <= 0 && n < 6) { const a = n * 1.05 + Math.random() * 0.4; d.m.position.set(x + Math.cos(a) * 0.32, 0.13, z + Math.sin(a) * 0.32); d.vx = Math.cos(a) * 1.1; d.vz = Math.sin(a) * 1.1; d.l = 0.35; n++; } });
   }
 
   burst(x, y, z) {
@@ -403,7 +403,7 @@ export class Board3D {
     this.shake *= 0.9; this.updCam();
     for (let i = 0; i < this.N; i++) { this.pp[i * 3 + 1] += dt * 0.35; if (this.pp[i * 3 + 1] > 9) this.pp[i * 3 + 1] = -1; }
     this.pg.attributes.position.needsUpdate = true;
-    this.dust.forEach(d => { if (d.l > 0) { d.l -= dt; d.m.position.x += d.vx * dt; d.m.position.z += d.vz * dt; d.m.position.y += dt * 0.5; const k = 1 - d.l / 0.45; d.m.scale.setScalar(1 + k * 2.5); d.m.material.opacity = 0.8 * (1 - k); } else d.m.material.opacity = 0; });
+    this.dust.forEach(d => { if (d.l > 0) { d.l -= dt; d.m.position.x += d.vx * dt; d.m.position.z += d.vz * dt; const k = 1 - d.l / 0.35; d.m.scale.set(1 + k * 1.5, 0.5 + k * 0.5, 1 + k * 1.5); d.m.material.opacity = 0.55 * (1 - k); } else d.m.material.opacity = 0; });
     this.conf.forEach(o => { if (o.l > 0) { o.l -= dt; o.v.y -= 9 * dt; o.m.position.addScaledVector(o.v, dt); o.m.rotation.x += dt * 8; o.m.rotation.y += dt * 6; if (o.m.position.y < 0.15) { o.m.position.y = 0.15; o.v.set(0, 0, 0); } if (o.l <= 0) o.m.visible = false; } });
     if (this.diceState === 'idle') { this.dice.position.y = 2.4 + Math.sin(T0 * 2) * 0.15; this.dice.rotation.y += dt * 0.6; this.dice.rotation.x = Math.sin(T0) * 0.15; }
     (this.hl || []).forEach(h => { h.r.scale.setScalar(1 + Math.sin(T0 * 8) * 0.15); h.p.position.y = (h.p.userData.base || 0.11) + Math.abs(Math.sin(T0 * 5)) * 0.18; });
