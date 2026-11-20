@@ -1,10 +1,9 @@
 // Ludo Dhamaal online server: one Durable Object per room.
-import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf } from '../../app/src/main/assets/www/js/rules.js';
+import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf, markLeft } from '../../app/src/main/assets/www/js/rules.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const TURN_MS = 15000;
-const AWAY_MS = 4000;
 
 export default {
   async fetch(req, env) {
@@ -92,7 +91,7 @@ export class Room {
   wsOf(pid) { for (const [ws, p] of this.sockets) if (p === pid) return ws; return null; }
 
   lobby() {
-    this.all({ t: 'lobby', code: this.code, host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, mic: p.mic, host: p.pid === this.host })) });
+    this.all({ t: 'lobby', code: this.code, host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host })) });
   }
 
   onMsg(ws, raw) {
@@ -135,6 +134,7 @@ export class Room {
       this.players.push(p);
       if (!this.host) this.host = pid;
     } else {
+      if (p.left) return this.send(ws, { t: 'err', msg: 'You left this game.', fatal: true });
       const old = this.wsOf(pid); if (old && old !== ws) { this.sockets.delete(old); try { old.close(); } catch (e) { /* ignore */ } }
       p.connected = true; p.name = clean(m.name) || p.name;
     }
@@ -148,10 +148,22 @@ export class Room {
   leave(ws, pid) {
     this.sockets.delete(ws);
     if (!this.s) this.players = this.players.filter(x => x.pid !== pid);
-    else { const p = this.players.find(x => x.pid === pid); if (p) p.connected = false; }
-    if (this.host === pid) { const n = this.players.find(x => x.connected); this.host = n ? n.pid : null; }
+    else {
+      const p = this.players.find(x => x.pid === pid);
+      if (p) { p.connected = false; p.left = true; }
+      const gp = this.s.players.find(x => x.id === pid);
+      if (gp && !this.s.over) {
+        const wasTurn = this.s.turn === gp.color;
+        markLeft(this.s, gp.color);
+        if (this.s.over) { this.clearTurn(); this.all({ t: 'passed', s: this.s, reason: 'left', turnEnds: null }); }
+        else if (wasTurn) { this.moves = []; this.armTurn(); this.all({ t: 'passed', s: this.s, reason: 'left', turnEnds: this.turnEnds }); }
+        else this.all({ t: 'passed', s: this.s, reason: 'left-other', turnEnds: this.turnEnds });
+      }
+    }
+    // The next person who joined after the host becomes the host.
+    if (this.host === pid) { const n = this.players.find(x => x.connected && !x.left); this.host = n ? n.pid : null; }
     try { ws.close(); } catch (e) { /* ignore */ }
-    this.lobby(); this.checkAway(); this.armEmpty();
+    this.lobby(); this.armEmpty();
   }
 
   onClose(ws) {
@@ -164,8 +176,8 @@ export class Room {
       // In the lobby, drop people who left after a short grace time.
       setTimeout(() => { const q = this.players.find(x => x.pid === pid); if (q && !q.connected && !this.s) { this.players = this.players.filter(x => x.pid !== pid); if (this.host === pid) { const n = this.players.find(x => x.connected); this.host = n ? n.pid : null; } this.lobby(); } }, 15000);
     }
-    if (this.host === pid && !this.s) { const n = this.players.find(x => x.connected); if (n) this.host = n.pid; }
-    this.lobby(); this.checkAway(); this.armEmpty();
+    if (this.host === pid) { const n = this.players.find(x => x.connected && !x.left); if (n) this.host = n.pid; }
+    this.lobby(); this.armEmpty();
   }
 
   armEmpty() {
@@ -206,23 +218,8 @@ export class Room {
     this.checkAway();
   }
 
-  // A player who is offline loses their turn (no bot plays for them).
-  checkAway() {
-    if (!this.s || this.s.over) return;
-    const cur = this.current();
-    const p = this.players.find(x => x.pid === cur.id);
-    if (p && !p.connected) {
-      const seq = this.s.seq;
-      setTimeout(() => {
-        if (!this.s || this.s.seq !== seq || this.s.over) return;
-        const q = this.players.find(x => x.pid === this.current().id);
-        if (q && !q.connected) {
-          if (this.players.every(x => !x.connected)) return;
-          this.skip('away');
-        }
-      }, AWAY_MS);
-    }
-  }
+  // Someone with a network problem keeps their turn until the 15 second timer runs out.
+  checkAway() {}
 
   doRoll(pid) {
     const s = this.s; if (!s || s.over || s.rolled) return;

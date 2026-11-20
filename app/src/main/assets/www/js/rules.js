@@ -74,7 +74,23 @@ export function movableTokens(s, color, d) {
 }
 
 function activeColors(s) {
-  return s.order.filter(c => { const p = playerOf(s, c); return p && !p.done; });
+  return s.order.filter(c => { const p = playerOf(s, c); return p && !p.done && !p.left; });
+}
+
+// A player quit the game: they are skipped from now on. If only one player is left,
+// the game ends.
+export function markLeft(s, color) {
+  const p = playerOf(s, color);
+  if (!p || p.left || p.done) return;
+  p.left = true;
+  s.seq++;
+  const act = activeColors(s);
+  if (act.length <= 1) {
+    if (act.length === 1 && !s.ranks.includes(act[0])) s.ranks.push(act[0]);
+    s.over = true;
+    return;
+  }
+  if (s.turn === color) nextTurn(s);
 }
 
 export function nextTurn(s) {
@@ -85,7 +101,7 @@ export function nextTurn(s) {
     i = (i + 1) % s.order.length;
     const c = s.order[i];
     const p = playerOf(s, c);
-    if (p && !p.done) { s.turn = c; break; }
+    if (p && !p.done && !p.left) { s.turn = c; break; }
   }
   s.sixes = 0;
   s.rolled = false;

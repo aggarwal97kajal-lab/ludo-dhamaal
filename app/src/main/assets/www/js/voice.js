@@ -28,7 +28,7 @@ export class Voice {
   }
 
   async start(me, wantMic) {
-    this.me = me;
+    const had = !!this.local;
     if (!this.local) {
       try {
         this.local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -36,7 +36,12 @@ export class Voice {
         this.local = null;
       }
     }
+    // Only start calling people once we know whether we have a mic, so our voice is
+    // part of every call from the beginning.
+    const first = !this.me;
+    this.me = me;
     this.setMuted(!wantMic);
+    if (!first && !had && this.local) this.restart();
     if (!this.timer) this.timer = setInterval(() => this.levels(), 200);
     return !!this.local;
   }
@@ -89,7 +94,17 @@ export class Voice {
     this.send(pid, { sdp: pc.localDescription });
   }
 
+  // Rebuild every call (used when the mic becomes available after calls started).
+  restart() {
+    for (const pid of [...this.peers.keys()]) {
+      this.drop(pid);
+      if (this.me < pid) this.call(pid); else this.send(pid, { redo: true });
+    }
+  }
+
   async signal(from, data) {
+    if (!this.me) return;
+    if (data.redo) { this.drop(from); this.call(from); return; }
     if (data.sdp) {
       if (data.sdp.type === 'offer') {
         if (this.peers.has(from)) this.drop(from);

@@ -6,7 +6,7 @@ SRC = '/home/claude/ludo/art/'
 CHARS = ['red', 'green', 'yellow', 'blue']           # source pictures (Riya, Arjun, Dadaji, Chotu)
 TEAM = [(224, 16, 58), (0, 200, 83), (255, 208, 0), (30, 94, 240)]
 # clothing hue band (degrees) + start of clothes (fraction of height) for each source picture
-CLOTH = {'red': ((340, 15), 0.40), 'green': ((70, 150), 0.36), 'yellow': ((30, 68), 0.34), 'blue': ((175, 212), 0.40)}
+CLOTH = {'red': ((345, 8), 0.40), 'green': ((70, 150), 0.36), 'yellow': ((30, 68), 0.34), 'blue': ((175, 212), 0.40)}
 
 def hsv(a):
     r, g, b = [a[..., i] / 255.0 for i in range(3)]
@@ -16,14 +16,15 @@ def hsv(a):
     s = np.where(mx > 0, d / (mx + 1e-6), 0)
     return h, s, mx
 
-def recolor(src, ci, team):
+def recolor(src, ci, team, top_override=None):
     a = np.array(src).astype(np.float32)
     h, s, v = hsv(a)
     (h0, h1), top = CLOTH[CHARS[ci]]
+    if top_override is not None: top = top_override
     band = ((h >= h0) | (h <= h1)) if h0 > h1 else ((h >= h0) & (h <= h1))
     H = a.shape[0]
     rows = np.arange(H)[:, None] / H
-    mask = band & (s > 0.35) & (v > 0.18) & (rows > top) & (a[..., 3] > 0)
+    mask = band & (s > (0.55 if ci == 0 else 0.35)) & (v > 0.18) & (rows > top) & (a[..., 3] > 0)
     # grow the mask a little into the soft edge of the clothes, staying inside the same hue band
     from scipy import ndimage
     edge = ndimage.binary_dilation(mask, iterations=2) & band & (s > 0.22) & (rows > top) & (a[..., 3] > 0)
@@ -51,6 +52,7 @@ for ci, name in enumerate(CHARS):
         b2 = b2.resize((round(b2.width * 420 / b2.height), 420), Image.LANCZOS)
         b2.save(IMG + f'c{ci}-{t}.png', optimize=True)
         # faces: recolour using the same rule on the face crop (collar area only)
-        f2 = recolor(face, ci, t) if ci != t else face
+        # faces: only the collar at the very bottom is clothing; lips and hair must stay as they are
+        f2 = recolor(face, ci, t, top_override=0.78) if ci != t else face
         f2.resize((128, 128), Image.LANCZOS).save(IMG + f'c{ci}-{t}-face.png', optimize=True)
 print('done')

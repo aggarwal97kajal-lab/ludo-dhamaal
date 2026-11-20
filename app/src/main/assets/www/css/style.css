@@ -208,3 +208,9 @@ img.body { display: block; width: auto; pointer-events: none; }
 .tbar { width: 120px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .12); overflow: hidden; margin-top: 4px; }
 .tbar i { display: block; height: 100%; width: 0; background: var(--gold); border-radius: 3px; transition: width .25s linear, background .3s; }
 .tbar i.low { background: #ff4d6d; }
+
+/* Own connection lost */
+.netbanner { position: fixed; left: 50%; top: calc(70px + env(safe-area-inset-top)); transform: translateX(-50%); display: none; align-items: center; gap: 10px; padding: 8px 18px; border-radius: 999px; background: #6b0f22; color: #fff; font-weight: 700; font-size: 15px; z-index: 45; border: 2px solid #ffb3c1; white-space: nowrap; }
+.netbanner.show { display: flex; }
+.spin { width: 16px; height: 16px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .3); border-top-color: #fff; animation: rot .8s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }

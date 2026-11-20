@@ -172,13 +172,14 @@ function renderCards() {
     let st = p.done ? 'Finished!' : `Home ${fin}/4`;
     if (G.mode === 'online') {
       const lp = G.lobby.find(x => x.pid === p.id);
-      if (lp && !lp.connected) st = 'Offline';
+      if (lp && lp.left) st = 'Offline';
+      else if (lp && !lp.connected) st = 'Waiting for network...';
       else if (speaking) st = 'Speaking...';
     }
     if (p.kind === 'bot') st = p.done ? 'Finished!' : `Bot · Home ${fin}/4`;
     const lp = G.mode === 'online' ? G.lobby.find(x => x.pid === p.id) : null;
     const micOn = lp ? lp.mic : false;
-    const away = lp && !lp.connected;
+    const away = lp && (!lp.connected || lp.left);
     return `<div data-pid="${p.id}" class="gcard ${s.turn === p.color && !s.over ? 'turn' : ''} ${away ? 'away' : ''}" style="${s.turn === p.color ? '' : ''}">
       ${avatar(p.look, p.color, speaking ? 'speak' : '')}
       <div class="info"><span class="nm">${esc(p.name)}${p.id === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
@@ -431,6 +432,7 @@ function openRoom(code) {
   });
 }
 function setNetState(st) {
+  $('netBanner').classList.toggle('show', st !== 'online');
   const el = $('netState');
   el.textContent = st === 'online' ? 'Online' : 'Reconnecting...';
   el.className = 'pill ' + (st === 'online' ? 'ok' : 'bad');
@@ -440,6 +442,7 @@ function endOnline() {
   closeChat();
   if (G.net) G.net.close();
   if (G.voice) G.voice.stop();
+  $('netBanner').classList.remove('show');
   G.net = null;
 }
 
@@ -465,7 +468,7 @@ function renderLobby() {
   const rows = L.map((p, i) => {
     const c = L.length >= 2 ? cols[i] : i;
     const sp = G.speaking.has(p.pid);
-    const st = !p.connected ? 'Offline' : sp ? 'Speaking...' : p.host ? 'Host' : 'Ready';
+    const st = !p.connected ? 'Waiting for network...' : sp ? 'Speaking...' : p.host ? 'Host' : 'Ready';
     return `<div class="pcard" style="border-color:${p.pid === pid ? UI[c] : ''}">${avatar(p.look, c, sp ? 'speak' : '')}
       <div class="col grow"><span class="nm">${esc(p.name)}${p.pid === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       <span class="mic ${p.mic ? 'on' : ''}">${p.mic ? MIC : MIC_OFF}</span></div>`;
@@ -494,12 +497,17 @@ $('lobbyCopy').onclick = () => {
 async function onNet(m) {
   if (!G) return;
   switch (m.t) {
-    case 'lobby':
+    case 'lobby': {
+      const wasHost = G.host;
       G.lobby = m.players; G.host = m.host === pid;
+      if (G.host && !wasHost && G.hostKnown) toast('You are now the host', '#3A2490');
+      G.hostKnown = true;
+      if (current === 'win') $('winAgain').style.display = G.host ? 'flex' : 'none';
       G.voice.sync(m.players.filter(p => p.connected).map(p => p.pid));
       if (current === 'lobby') renderLobby();
       if (current === 'game') renderCards();
       break;
+    }
     case 'err':
       modal(`<h3>Oops</h3><p>${esc(m.msg)}</p><button class="btn gold" id="mOk">OK</button>`);
       $('mOk').onclick = () => { closeModal(); if (m.fatal) { endOnline(); G = null; show('home'); } };
@@ -541,11 +549,12 @@ async function onNet(m) {
       break;
     }
     case 'passed':
-      board.clearHighlight(); board.diceIdle();
+      if (m.reason !== 'left-other') { board.clearHighlight(); board.diceIdle(); }
       G.s = m.s; G.turnEnds = m.turnEnds; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.reason === 'timeout') note('Time up, turn skipped');
-      if (m.reason === 'away') note('Player offline, skipped');
+      if (m.reason === 'left') note('Player left the game');
       renderCards(); refreshDice();
+      if (G.s.over) { setTimeout(finishGame, 600); break; }
       if (playerOf(G.s, G.s.turn).id === pid) sfx('turn');
       break;
     case 'chat': onChat(m); break;

@@ -24,7 +24,8 @@ const PS = 1.0; // size of the people on the board
 // Pictures: img/c<character>-<team colour>.png (every character exists in all 4 team colours)
 
 // Recolour the clothes on a character sheet to another team colour, keeping the shading.
-const CLOTH = [[340, 15], [70, 150], [30, 68], [175, 212]];
+const CLOTH = [[345, 8], [70, 150], [30, 68], [175, 212]];
+const MIN_SAT = [0.55, 0.3, 0.3, 0.3]; // Riya's red jacket: high saturation so brown hair tips stay brown
 const TEAM_RGB = [[224, 16, 58], [0, 200, 83], [255, 208, 0], [30, 94, 240]];
 function recolorClothes(ctx, ch, color) {
   const W = ctx.canvas.width, H = ctx.canvas.height, cellH = H / 3;
@@ -36,7 +37,7 @@ function recolorClothes(ctx, ch, color) {
     const y = Math.floor(n / W) % cellH;
     if (y < cellH * 0.36) continue;
     const r = px[i], g = px[i + 1], b = px[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), dd = mx - mn;
-    if (mx < 46 || dd / (mx || 1) < 0.3) continue;
+    if (mx < 46 || dd / (mx || 1) < MIN_SAT[ch]) continue;
     let h = mx === r ? ((g - b) / dd) % 6 : mx === g ? (b - r) / dd + 2 : (r - g) / dd + 4; h *= 60; if (h < 0) h += 360;
     const inBand = h0 > h1 ? (h >= h0 || h <= h1) : (h >= h0 && h <= h1);
     if (!inBand) continue;
