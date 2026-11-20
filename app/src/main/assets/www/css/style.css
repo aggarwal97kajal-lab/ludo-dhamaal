@@ -263,3 +263,13 @@ img.body { display: block; width: auto; pointer-events: none; }
 .promo button small { font-size: 12px; font-family: 'Baloo 2', sans-serif; color: var(--muted); }
 .sidebtn { flex: 1; height: 64px; border-radius: 18px; background: var(--card); border: 3px solid var(--line); font-size: 20px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 8px; }
 .sidebtn.on { border-color: var(--gold); background: var(--card2); color: var(--gold); }
+.hint.warn { border-color: #ff4d6d; }
+.hint.warn span { color: #ffd0d8; }
+/* Home cards: text always above the pictures, never behind them */
+.gamecard > .col { position: relative; z-index: 1; max-width: 58%; }
+.gamecard .s { max-width: none; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.gamecard .art { z-index: 0; pointer-events: none; }
+.gamecard .glyphs { font-size: 64px; }
+.gamecard.snakes { background: linear-gradient(135deg, #16a34a, #065f46); border-color: #86efac; color: #fff; }
+.gamecard.snakes .play { background: #fde047; color: #065f46; }
+.gamecard .t { font-size: 30px; }

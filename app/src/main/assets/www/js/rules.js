@@ -73,7 +73,7 @@ export function movableTokens(s, color, d) {
   return out;
 }
 
-function activeColors(s) {
+export function activeColors(s) {
   return s.order.filter(c => { const p = playerOf(s, c); return p && !p.done && !p.left; });
 }
 

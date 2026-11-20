@@ -1,6 +1,7 @@
-// Pitara online server (Ludo and Chess): one Durable Object per room.
+// Pitara online server (Ludo, Chess, Snakes & Ladders): one Durable Object per room.
 import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf, markLeft } from '../../app/src/main/assets/www/js/rules.js';
 import { newChess, chessMove, chessTimeout, chessLeft, chessPlayer } from '../../app/src/main/assets/www/js/chessrules.js';
+import { newSnakes, snakeRoll, snakePass } from '../../app/src/main/assets/www/js/snakes.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -10,7 +11,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess'] });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes'], v: 3 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/new' && req.method === 'POST') {
       for (let i = 0; i < 6; i++) {
@@ -68,6 +69,27 @@ export class Room {
     this.chat = [];
     this.game = 'ludo';
     this.turnStart = 0;
+    // The room is saved, so a server restart (for example after an update) does not lose the game.
+    if (state && state.storage && state.blockConcurrencyWhile) state.blockConcurrencyWhile(() => this.restore());
+  }
+
+  async restore() {
+    try {
+      const r = await this.state.storage.get('room');
+      if (!r) return;
+      Object.assign(this, { players: r.players || [], host: r.host, s: r.s, claimed: r.claimed, code: r.code, moves: r.moves || [], chat: r.chat || [], game: r.game || 'ludo', chessRound: r.chessRound || 0 });
+      this.players.forEach(p => { p.connected = false; });
+      if (this.s && !this.s.over) { if (this.s.game === 'chess') this.armChess(); else this.armTurn(); }
+      this.armEmpty();
+    } catch (e) { /* start fresh */ }
+  }
+  save() {
+    if (!this.state || !this.state.storage) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      const snap = { players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, tint: p.tint, left: !!p.left, mic: false })), host: this.host, s: this.s, claimed: this.claimed, code: this.code, moves: this.moves, chat: this.chat.slice(-30), game: this.game, chessRound: this.chessRound || 0 };
+      this.state.storage.put('room', snap).catch(() => {});
+    }, 200);
   }
 
   async fetch(req) {
@@ -92,7 +114,7 @@ export class Room {
   }
 
   send(ws, m) { try { ws.send(JSON.stringify(m)); } catch (e) { /* closed */ } }
-  all(m) { const t = JSON.stringify(m); for (const ws of this.sockets.keys()) { try { ws.send(t); } catch (e) { /* closed */ } } }
+  all(m) { const t = JSON.stringify(m); for (const ws of this.sockets.keys()) { try { ws.send(t); } catch (e) { /* closed */ } } if (m.t !== 'chat' && m.t !== 'rtc') this.save(); }
   wsOf(pid) { for (const [ws, p] of this.sockets) if (p === pid) return ws; return null; }
 
   lobby() {
@@ -110,7 +132,7 @@ export class Room {
       case 'ping': this.send(ws, { t: 'pong' }); break;
       case 'mic': p.mic = !!m.on; this.lobby(); break;
       case 'start': this.start(me); break;
-      case 'roll': this.doRoll(me); break;
+      case 'roll': if (this.s && this.s.game === 'snakes') this.doSnakeRoll(me); else this.doRoll(me); break;
       case 'move': this.doMove(me, m.token); break;
       case 'cmove': this.doChessMove(ws, me, m); break;
       case 'chat': {
@@ -137,7 +159,7 @@ export class Room {
       if (this.s) return this.send(ws, { t: 'err', msg: 'This game has already started.', fatal: true });
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
       // The person who creates the room picks the game. Everyone who joins plays that game.
-      if (!this.players.length) this.game = m.game === 'chess' ? 'chess' : 'ludo';
+      if (!this.players.length) this.game = ['chess', 'snakes'].includes(m.game) ? m.game : 'ludo';
       const max = this.game === 'chess' ? 2 : 4;
       if (this.players.length >= max) return this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
       p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false };
@@ -184,14 +206,22 @@ export class Room {
     const pid = this.sockets.get(ws); if (!pid) return;
     this.sockets.delete(ws);
     if (this.wsOf(pid)) return;
+    // Phones often reconnect within a second or two (Wi-Fi <-> mobile data). Only show
+    // "Waiting for network" to the others if they are still away after 3 seconds.
+    setTimeout(() => { if (!this.wsOf(pid)) this.markAway(pid); }, 3000);
+    this.armEmpty();
+  }
+
+  markAway(pid) {
     const p = this.players.find(x => x.pid === pid);
-    if (p) p.connected = false;
+    if (!p || !p.connected) return;
+    p.connected = false;
     if (!this.s && p) {
       // In the lobby, drop people who left after a short grace time.
       setTimeout(() => { const q = this.players.find(x => x.pid === pid); if (q && !q.connected && !this.s) { this.players = this.players.filter(x => x.pid !== pid); if (this.host === pid) { const n = this.players.find(x => x.connected); this.host = n ? n.pid : null; } this.lobby(); } }, 15000);
     }
     if (this.host === pid) { const n = this.players.find(x => x.connected && !x.left); if (n) this.host = n.pid; }
-    this.lobby(); this.armEmpty();
+    this.lobby();
   }
 
   armEmpty() {
@@ -215,7 +245,8 @@ export class Room {
       return;
     }
     const cols = seatColors(ready.length);
-    this.s = newGame(ready.map((p, i) => ({ id: p.pid, name: p.name, color: cols[i], kind: 'remote', look: p.look })));
+    const list = ready.map((p, i) => ({ id: p.pid, name: p.name, color: cols[i], kind: 'remote', look: p.look }));
+    this.s = this.game === 'snakes' ? newSnakes(list) : newGame(list);
     this.moves = [];
     this.armTurn();
     this.all({ t: 'start', s: this.s, turnEnds: this.turnEnds });
@@ -260,7 +291,8 @@ export class Room {
   }
 
   skip(reason) {
-    passTurn(this.s); this.moves = [];
+    if (this.s.game === 'snakes') snakePass(this.s); else passTurn(this.s);
+    this.moves = [];
     this.armTurn();
     this.all({ t: 'passed', s: this.s, reason, turnEnds: this.turnEnds });
     this.checkAway();
@@ -269,8 +301,21 @@ export class Room {
   // Someone with a network problem keeps their turn until the 15 second timer runs out.
   checkAway() {}
 
+  doSnakeRoll(pid) {
+    const s = this.s; if (!s || s.game !== 'snakes' || s.over) return;
+    if (this.current().id !== pid) return;
+    if (this.lastRollAt && Date.now() - this.lastRollAt < 1200) return; // one roll at a time
+    this.lastRollAt = Date.now();
+    const ev = snakeRoll(s, rollDie());
+    if (!ev) return;
+    if (s.over) this.clearTurn(); else this.armTurn();
+    // Clients need about 1s for the dice plus walking time, so the timer starts after that.
+    if (!s.over) { const extra = 1200 + Math.abs(ev.to - ev.from) * 330 + (ev.via ? 1500 : 0); this.clearTurn(); this.turnEnds = Date.now() + TURN_MS + extra; const seq = s.seq; this.turnTimer = setTimeout(() => { if (this.s && this.s.seq === seq && !this.s.over) this.skip('timeout'); }, TURN_MS + extra); }
+    this.all({ t: 'srolled', ev, s, turnEnds: this.turnEnds });
+  }
+
   doRoll(pid) {
-    const s = this.s; if (!s || s.game === 'chess' || s.over || s.rolled) return;
+    const s = this.s; if (!s || s.game !== 'ludo' && s.game !== undefined || s.over || s.rolled) return;
     if (this.current().id !== pid) return;
     const d = rollDie();
     const r = roll(s, d);
@@ -285,7 +330,7 @@ export class Room {
   }
 
   doMove(pid, token) {
-    const s = this.s; if (!s || s.game === 'chess' || s.over || !s.rolled) return;
+    const s = this.s; if (!s || s.game === 'chess' || s.game === 'snakes' || s.over || !s.rolled) return;
     if (this.current().id !== pid) return;
     const t = Number(token);
     if (!movableTokens(s, s.turn, s.dice).includes(t)) return;

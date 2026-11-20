@@ -58,6 +58,10 @@ export class Board3D {
   constructor(canvas) {
     this.canvas = canvas;
     this.R = new T.WebGLRenderer({ canvas, antialias: true });
+    // The phone can take the 3D drawing away (screen recording, notification shade, low memory).
+    // The app watches lost and rebuilds the board if it does not come back by itself.
+    canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.lost = true; this.lostAt = Date.now(); });
+    canvas.addEventListener('webglcontextrestored', () => { this.lost = false; this.restored = Date.now(); });
     this.R.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.R.shadowMap.enabled = true;
     this.R.shadowMap.type = T.PCFSoftShadowMap;
@@ -81,7 +85,9 @@ export class Board3D {
     let last = performance.now();
     const loop = n => {
       const dt = Math.min((n - last) / 1000, 0.1); last = n;
-      this.step(dt); if (!this.paused) this.R.render(this.S, this.cam);
+      // A removed board still finishes its animations (the game waits for them), but draws nothing.
+      if (this.dead && !this.tweens.length) return;
+      this.step(dt); if (!this.dead && !this.paused && !this.lost) { try { this.R.render(this.S, this.cam); } catch (e) { /* context gone */ } }
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
@@ -93,7 +99,7 @@ export class Board3D {
     this.cam.aspect = w / h;
     // Fit the whole board across the screen width.
     const half = Math.tan(this.cam.fov * Math.PI / 360) * Math.min(1, w / h);
-    this.rad = Math.max(20, Math.min(48, 8.6 / half));
+    this.rad = Math.max(20, Math.min(48, (this.fitW || 8.6) / half));
     this.fitRad = this.rad;
     this.cam.updateProjectionMatrix();
     this.updCam();
@@ -128,7 +134,6 @@ export class Board3D {
     L.position.set(9, 18, 7); L.castShadow = true; L.shadow.mapSize.set(1024, 1024);
     Object.assign(L.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11 });
     L.shadow.bias = -0.0005; L.shadow.normalBias = 0.02; S.add(L);
-    HOME.forEach((h, i) => { const p = new T.PointLight(TEAM[i], 0.55, 9); p.position.set(h[0] * 1.35, 1.2, h[1] * 1.35); S.add(p); });
     const pm = new T.PMREMGenerator(this.R), es = new T.Scene();
     es.background = new T.Color('#3a2a80');
     [[0, 10, 0, '#fff', 9], [10, 4, 6, '#ffe0b0', 5], [-10, 4, -6, '#a0c4ff', 5]].forEach(a => {
@@ -136,15 +141,29 @@ export class Board3D {
       m.position.set(a[0], a[1], a[2]); m.lookAt(0, 0, 0); es.add(m);
     });
     S.environment = pm.fromScene(es, 0.04).texture;
+    pm.dispose();
+    const fl = new T.Mesh(new T.CircleGeometry(60, 64), this.mat('#24135e', { roughness: 0.35, metalness: 0.3 }));
+    fl.rotation.x = -Math.PI / 2; fl.position.y = -1.4; fl.receiveShadow = true; S.add(fl);
+    this.gold = this.mat('#ffc21a', { metalness: 0.9, roughness: 0.2 });
+    this.buildBoard();
+    this.buildCommon();
+  }
 
+  // Shapes used by the boards
+  rr(w, h, r) { const s = new T.Shape(), x = -w / 2, y = -h / 2; s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r); s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h); s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r); s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s; }
+  ext(sh, d, b) { const g = new T.ExtrudeGeometry(sh, { depth: d, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 3, curveSegments: 8 }); g.rotateX(-Math.PI / 2); return g; }
+  frame(o, i, r1, r2) { const s = this.rr(o, o, r1); s.holes.push(this.rr(i, i, r2)); return s; }
+
+  // The Ludo board
+  buildBoard() {
+    const S = this.S;
+    HOME.forEach((h, i) => { const p = new T.PointLight(TEAM[i], 0.55, 9); p.position.set(h[0] * 1.35, 1.2, h[1] * 1.35); S.add(p); });
     const rr = (w, h, r) => { const s = new T.Shape(), x = -w / 2, y = -h / 2; s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r); s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h); s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r); s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y); return s; };
     const ext = (sh, d, b) => { const g = new T.ExtrudeGeometry(sh, { depth: d, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 3, curveSegments: 8 }); g.rotateX(-Math.PI / 2); return g; };
     const frame = (o, i, r1, r2) => { const s = rr(o, o, r1); s.holes.push(rr(i, i, r2)); return s; };
     const mk = this.mk.bind(this), M = this.mat.bind(this);
 
-    const fl = new T.Mesh(new T.CircleGeometry(60, 64), M('#24135e', { roughness: 0.35, metalness: 0.3 }));
-    fl.rotation.x = -Math.PI / 2; fl.position.y = -1.4; fl.receiveShadow = true; S.add(fl);
-    const gold = M('#ffc21a', { metalness: 0.9, roughness: 0.2 });
+    const gold = this.gold;
     mk(ext(rr(16.6, 16.6, 0.9), 0.5, 0.12), M('#3b1d8f', { roughness: 0.3 }), 0, -0.62, 0);
     mk(ext(frame(17.6, 16.2, 1.2, 0.8), 0.55, 0.1), gold, 0, -0.55, 0); // frame top sits 0.1 above the slab: no shared faces, no flicker
     mk(new T.CylinderGeometry(7, 8, 0.7, 48), M('#2a1270', { metalness: 0.3 }), 0, -1.1, 0);
@@ -178,6 +197,11 @@ export class Board3D {
     mk(ext(rr(3.1, 3.1, 0.2), 0.06, 0.02), wM, 0, 0, 0);
     tri([[-1.45, -1.45], [-1.45, 1.45]], 0); tri([[-1.45, -1.45], [1.45, -1.45]], 1);
     tri([[1.45, -1.45], [1.45, 1.45]], 2); tri([[-1.45, 1.45], [1.45, 1.45]], 3);
+  }
+
+  // Dice, sparkles, dust and confetti: the same for every board game.
+  buildCommon() {
+    const S = this.S, mk = this.mk.bind(this), M = this.mat.bind(this);
 
     // Dice
     const dtx = v => {
@@ -282,13 +306,15 @@ export class Board3D {
     }));
   }
 
+  get perColor() { return 4; }
+
   setPlayers(colors, looks) {
     this.people.flat().forEach(p => this.S.remove(p));
     this.people = [[], [], [], []];
     this.inPlay = colors;
     this.looks = looks || {};
     colors.forEach(c => {
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < this.perColor; i++) {
         const p = this.person(c);
         p.userData.idx = i;
         this.people[c].push(p);
@@ -422,7 +448,7 @@ export class Board3D {
 
   highlight(color, idxs, onPick) {
     this.clearHighlight();
-    this.onPick = onPick;
+    this.onPick = onPick; this.hlArgs = [color, idxs, onPick];
     this.hl = idxs.map(i => {
       const p = this.people[color][i];
       const r = new T.Mesh(this.ringG, this.mat('#ffc21a', { emissive: '#ffb300', emissiveIntensity: 1.4 }));
@@ -433,7 +459,13 @@ export class Board3D {
 
   clearHighlight() {
     (this.hl || []).forEach(h => this.S.remove(h.r));
-    this.hl = []; this.onPick = null;
+    this.hl = []; this.onPick = null; this.hlArgs = null;
+  }
+
+  // Stop drawing and free the graphics memory. The app makes a new board when needed.
+  destroy() {
+    this.dead = true;
+    try { this.R.dispose(); this.R.forceContextLoss(); } catch (e) { /* ignore */ }
   }
 
   puff(x, z) {

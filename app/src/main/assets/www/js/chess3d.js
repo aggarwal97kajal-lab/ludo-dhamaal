@@ -7,6 +7,8 @@ export class Chess3D {
   constructor(canvas) {
     this.canvas = canvas;
     this.R = new T.WebGLRenderer({ canvas, antialias: true });
+    canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); this.lost = true; this.lostAt = Date.now(); });
+    canvas.addEventListener('webglcontextrestored', () => { this.lost = false; this.restored = Date.now(); });
     this.R.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.R.shadowMap.enabled = true; this.R.shadowMap.type = T.PCFSoftShadowMap;
     this.S = new T.Scene(); this.S.background = new T.Color('#120a33'); this.S.fog = new T.Fog('#120a33', 30, 60);
@@ -19,10 +21,12 @@ export class Chess3D {
     let last = performance.now();
     const loop = n => {
       const dt = Math.min((n - last) / 1000, 0.1); last = n;
-      this.step(dt); if (!this.paused) this.R.render(this.S, this.cam);
-      requestAnimationFrame(loop);
+      // A removed board still finishes its animations (the game waits for them), but draws nothing.
+      if (this.dead && !this.tweens.length) return;
+      this.step(dt); if (!this.dead && !this.paused && !this.lost) { try { this.R.render(this.S, this.cam); } catch (e) { /* context gone */ } }
+      this.raf = requestAnimationFrame(loop);
     };
-    requestAnimationFrame(loop);
+    this.raf = requestAnimationFrame(loop);
   }
 
   resize() {
@@ -44,6 +48,11 @@ export class Chess3D {
     this.thTarget = this.th + d;
   }
 
+  destroy() {
+    this.dead = true;
+    try { this.R.dispose(); this.R.forceContextLoss(); } catch (e) { /* ignore */ }
+  }
+
   M(col, o) { return new T.MeshStandardMaterial(Object.assign({ color: col, roughness: 0.35, metalness: 0.05, envMapIntensity: 0.6 }, o || {})); }
   mk(g, m, x, y, z, par) { const o = new T.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; o.receiveShadow = true; (par || this.S).add(o); return o; }
 
@@ -54,7 +63,7 @@ export class Chess3D {
     Object.assign(L.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7 }); L.shadow.bias = -0.0005; L.shadow.normalBias = 0.02; S.add(L);
     const pm = new T.PMREMGenerator(this.R), es = new T.Scene(); es.background = new T.Color('#3a2a80');
     [[0, 10, 0, '#fff', 9], [10, 4, 6, '#ffe0b0', 5], [-10, 4, -6, '#a0c4ff', 5]].forEach(a => { const m = new T.Mesh(new T.PlaneGeometry(a[4], a[4]), new T.MeshBasicMaterial({ color: a[3], side: 2 })); m.position.set(a[0], a[1], a[2]); m.lookAt(0, 0, 0); es.add(m); });
-    S.environment = pm.fromScene(es, 0.04).texture;
+    S.environment = pm.fromScene(es, 0.04).texture; pm.dispose();
 
     this.gold = M('#ffc21a', { metalness: 0.9, roughness: 0.2 });
     // Gold frame top sits above the inner board so the two never share a surface (no flicker).

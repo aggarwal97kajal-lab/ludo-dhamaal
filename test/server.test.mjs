@@ -42,10 +42,25 @@ room.clearTurn();
   check(r2.s.turn !== 0, 'leaver turn skipped');
   check(r2.players.find(p => p.pid === 'px').left, 'leaver marked offline');
   // network drop is not a leave
-  r2.onClose(y);
+  r2.onClose(y); r2.markAway('py'); // after the 3 second grace
   check(!r2.players.find(p => p.pid === 'py').left && !r2.players.find(p => p.pid === 'py').connected, 'network drop is waiting, not left');
   r2.onMsg(z, JSON.stringify({ t: 'leave' }));
   check(r2.s.over, 'last player standing ends the game');
   r2.clearTurn();
+}
+// Snakes & Ladders online
+{
+  const r = new Room({}, {}); r.claimed = true; r.code = 'SNAKE';
+  const a = mk('a'), b = mk('b');
+  r.onMsg(a, JSON.stringify({ t: 'hello', pid: 'pa', name: 'A', game: 'snakes' }));
+  r.onMsg(b, JSON.stringify({ t: 'hello', pid: 'pb', name: 'B', game: 'ludo' }));
+  check(r.game === 'snakes', 'room keeps the creator’s game');
+  r.onMsg(a, JSON.stringify({ t: 'start' }));
+  check(r.s && r.s.game === 'snakes' && r.s.pos[0] === 0, 'snakes started');
+  r.onMsg(b, JSON.stringify({ t: 'roll' }));
+  check(r.s.seq === 0, 'not your turn: no roll');
+  r.onMsg(a, JSON.stringify({ t: 'roll' }));
+  check(r.s.seq === 1 && r.s.pos[0] > 0, 'rolled and moved');
+  r.clearTurn();
 }
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);

@@ -17,6 +17,7 @@ import android.view.View
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -40,8 +41,25 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = Color.parseColor("#160D3D")
         window.navigationBarColor = Color.parseColor("#160D3D")
 
+        setupWeb(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                web.evaluateJavascript("(window.ldBack && window.ldBack()) ? 'y' : 'n'") { v ->
+                    if (v == null || !v.contains("y")) finish()
+                }
+            }
+        })
+        (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatcher, null)
+    }
+
+    // Builds the game screen. Also used again if Android stops the game's renderer
+    // (low memory or a graphics crash): instead of the app closing, it starts fresh and
+    // the game offers to rejoin the online room.
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun setupWeb(savedInstanceState: Bundle?) {
         web = WebView(this)
         web.setBackgroundColor(Color.parseColor("#160D3D"))
+        web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
         setContentView(web)
 
         val loader = WebViewAssetLoader.Builder()
@@ -68,6 +86,14 @@ class MainActivity : AppCompatActivity() {
                 openOutside(url)
                 return true
             }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                runOnUiThread {
+                    try { (view.parent as? android.view.ViewGroup)?.removeView(view); view.destroy() } catch (e: Exception) { }
+                    setupWeb(null)
+                }
+                return true
+            }
         }
 
         web.webChromeClient = object : WebChromeClient() {
@@ -85,16 +111,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                web.evaluateJavascript("(window.ldBack && window.ldBack()) ? 'y' : 'n'") { v ->
-                    if (v == null || !v.contains("y")) finish()
-                }
-            }
-        })
-
-        (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatcher, null)
 
         if (savedInstanceState != null) web.restoreState(savedInstanceState)
         else web.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")

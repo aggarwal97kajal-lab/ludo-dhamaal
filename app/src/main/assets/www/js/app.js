@@ -5,6 +5,8 @@ import { Net } from './net.js';
 import { Voice, loadIce } from './voice.js';
 import * as VoiceMod from './voice.js';
 import { Chess3D } from './chess3d.js';
+import { SnakeBoard3D } from './snakes3d.js';
+import { newSnakes, snakeRoll, snakePass, GOAL } from './snakes.js';
 import { Chess } from './chesslib.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
 
@@ -65,8 +67,16 @@ function splash() {
     p = Math.min(100, p + 9 + Math.random() * 14);
     $('loadFill').style.width = p + '%';
     $('loadText').textContent = 'Setting up the board... ' + Math.round(p) + '%';
-    if (p >= 100) { clearInterval(t); setTimeout(() => show(profile ? 'home' : 'profile'), 250); if (!profile) openProfile(); }
+    if (p >= 100) { clearInterval(t); setTimeout(() => { show(profile ? 'home' : 'profile'); if (profile) offerRejoin(); }, 250); if (!profile) openProfile(); }
   }, 140);
+}
+
+// If the app was closed during an online game (or Android restarted it), offer to go back in.
+function offerRejoin() {
+  const r = store.get('room', null);
+  if (!r || !r.code || Date.now() - r.at > 3 * 60 * 60 * 1000) return;
+  confirmBox('Go back to your game?', `You were in ${GAME_NAME[r.game] || 'a'} room ${r.code}.`, 'Rejoin', 'No', () => { GAME = r.game || 'ludo'; openRoom(r.code); });
+  const no = $('mNo'); if (no) no.addEventListener('click', () => store.set('room', null), { once: true });
 }
 
 // ---------- Profile ----------
@@ -96,6 +106,7 @@ $('pfSave').onclick = () => {
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders' };
 function renderHome() {
   $('homeAv').outerHTML = `<div class="av sm" id="homeAv" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
   $('homeName').textContent = profile.name;
@@ -104,6 +115,8 @@ function renderHome() {
       <div class="art">${[0, 3].map(i => body(i, i, 128)).join('')}</div></button>
     <button class="gamecard chess" data-game="chess"><div class="col"><span class="t">Chess</span><span class="s">3D chess with move help that shows where each piece can go.</span><span class="play">Play</span></div>
       <div class="art glyphs">&#9819;<b>&#9822;</b></div></button>
+    <button class="gamecard snakes" data-game="snakes"><div class="col"><span class="t">Snakes & Ladders</span><span class="s">Climb the ladders, dodge the snakes. First to 100 wins!</span><span class="play">Play</span></div>
+      <div class="art">${body(2, 2, 120)}</div></button>
     <div class="gamecard soon"><span class="t">More games coming soon</span></div>`;
   music(true);
 }
@@ -114,7 +127,7 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = chess ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, g(PIECE.q + PIECE.k)],
@@ -174,14 +187,48 @@ $('setupGo').onclick = () => {
     const inp = document.querySelector(`[data-pn="${i}"]`);
     return { id: 'p' + i, name: (inp && inp.value.trim()) || 'Player ' + (i + 1), color: c, kind: 'me', look: others[i - 1] };
   });
-  startOffline(setupMode, players);
+  if (GAME === 'snakes') startSnakes(setupMode, players); else startOffline(setupMode, players);
 };
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 // ---------- Game (shared) ----------
 let board = null, G = null;
-function ensureBoard() { if (!board) board = new Board3D($('board')); else board.resize(); return board; }
+// A new <canvas> for every new 3D board, so a lost or old graphics context never comes back.
+function freshCanvas(id) { const old = $(id), c = old.cloneNode(false); old.replaceWith(c); return c; }
+function dropBoard() { if (board) { board.destroy(); board = null; } }
+function ensureBoard(kind) {
+  kind = kind || 'ludo';
+  if (board && (board.kind !== kind || board.dead)) dropBoard();
+  if (!board) { board = kind === 'snakes' ? new SnakeBoard3D(freshCanvas('board')) : new Board3D(freshCanvas('board')); board.kind = kind; }
+  else board.resize();
+  board.paused = false;
+  return board;
+}
+// Put the players on the board as the game state says.
+function syncBoard(b) {
+  const s = G.s;
+  const looks = {}; s.players.forEach(p => { looks[p.color] = ch(p.look); });
+  b.setPlayers(s.order.slice(), looks);
+  b.placeAll(s.game === 'snakes' ? s.pos : s.tokens);
+  const me = s.players.find(p => p.id === pid) || s.players[0];
+  b.faceColor(me.color);
+}
+// If the phone takes the 3D drawing away (white screen) and it does not come back by itself,
+// build a new board with the same game on it.
+function checkBoards() {
+  const now = Date.now();
+  [board, cboard].forEach(b => { if (b && !b.lost && !b.dead) { try { if (b.R.getContext().isContextLost()) { b.lost = true; b.lostAt = now; } } catch (e) { /* ignore */ } } });
+  if (board && board.lost && now - board.lostAt > 900) {
+    const hl = board.hlArgs, kind = board.kind; dropBoard();
+    if (G && G.s && G.s.game !== 'chess') { const b = ensureBoard(kind); syncBoard(b); b.paused = current !== 'game'; if (hl) b.highlight(...hl); }
+  }
+  if (cboard && cboard.lost && now - cboard.lostAt > 900) {
+    dropCBoard();
+    if (G && G.s && G.s.game === 'chess') { const b = ensureCBoard(); b.setPosition(G.s.fen); b.setLast(G.s.last); setChessCheck(); b.view(chessViewSide(), false); b.paused = current !== 'chess'; if (G.sel) chessTap(G.sel, true); }
+  }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(checkBoards, 300); });
 
 function toast(text, color) {
   const t = $('toast'); t.textContent = text; t.style.background = color || UI[0];
@@ -218,9 +265,11 @@ function renderCards() {
   const at = k => playerOf(s, (me.color + k) % 4);
   const top = [at(1), at(2)], bottom = [at(0), at(3)];
   const html = p => {
-    const fin = s.tokens[p.color].filter(x => x === FINISH).length;
+    const snakes = s.game === 'snakes';
+    const fin = snakes ? 0 : s.tokens[p.color].filter(x => x === FINISH).length;
+    const where = snakes ? (s.pos[p.color] ? `Square ${s.pos[p.color]}` : 'At start') : `Home ${fin}/4`;
     const speaking = G.speaking && G.speaking.has(p.id);
-    let st = p.done ? 'Finished!' : `Home ${fin}/4`;
+    let st = p.done ? 'Finished!' : where;
     if (G.mode === 'online') {
       const lp = G.lobby.find(x => x.pid === p.id);
       if (lp && lp.left) st = 'Offline';
@@ -228,7 +277,7 @@ function renderCards() {
       else if (speaking) st = 'Speaking...';
       else if (p.id !== pid && G.voice && voiceText(p.id) !== 'voice on') st = voiceText(p.id).replace('voice', 'Voice');
     }
-    if (p.kind === 'bot') st = p.done ? 'Finished!' : `Bot · Home ${fin}/4`;
+    if (p.kind === 'bot') st = p.done ? 'Finished!' : `Bot · ${where}`;
     const lp = G.mode === 'online' ? G.lobby.find(x => x.pid === p.id) : null;
     const micOn = lp ? lp.mic : false;
     const away = lp && (!lp.connected || lp.left);
@@ -279,6 +328,7 @@ function armTimer() {
 }
 let lastTick = 0;
 setInterval(() => {
+  checkBoards();
   if (G && current === 'chess' && G.s) { chessTick(); return; }
   if (!G || current !== 'game' || !G.s) { $('tfill').style.width = '0'; return; }
   if (G.busy && board && !board.tweens.length && !diceSpin) { G.stuck = (G.stuck || 0) + 250; if (G.stuck > 6000) { G.busy = false; G.stuck = 0; } } else G.stuck = 0;
@@ -299,6 +349,7 @@ function timeUp() {
   const s = G.s; G.turnEnds = null;
   board.clearHighlight();
   note('Time up, turn skipped'); buzz([80]);
+  if (s.game === 'snakes') { snakePass(s); return afterMove(); }
   if (G.pickRes) { const f = G.pickRes; G.pickRes = null; f(-1); return; }
   passTurn(s); afterMove();
 }
@@ -322,17 +373,13 @@ function refreshDice() {
 }
 
 function enterGame(mode) {
+  dropCBoard();
   show('game');
-  const b = ensureBoard();
-  const s = G.s;
-  const looks = {}; s.players.forEach(p => { looks[p.color] = ch(p.look); });
-  b.setPlayers(s.order.slice(), looks);
-  b.placeAll(s.tokens);
-  const me = s.players.find(p => p.id === pid) || s.players[0];
-  b.faceColor(me.color);
+  const b = ensureBoard(G.s.game === 'snakes' ? 'snakes' : 'ludo');
+  syncBoard(b);
   b.diceIdle();
   setDiceFace(0);
-  $('gameRoom').textContent = mode === 'online' ? 'Room ' + G.code : (mode === 'bot' ? 'Vs computer' : 'Pass & play');
+  $('gameRoom').textContent = (G.s.game === 'snakes' ? 'Snakes & Ladders · ' : '') + (mode === 'online' ? 'Room ' + G.code : (mode === 'bot' ? 'Vs computer' : 'Pass & play'));
   $('gameMic').classList.toggle('hide', mode !== 'online');
   $('emojiBtn').style.visibility = mode === 'online' ? 'visible' : 'hidden';
   setBadges();
@@ -344,7 +391,10 @@ function tapDice(e) {
   if (!myTurnToRoll()) return;
   sfx('click');
   $('diceBtn').disabled = true; $('diceBtn').classList.remove('ready');
-  if (G.mode === 'online') { G.rollSent = Date.now(); G.net.send({ t: 'roll' }); }
+  if (G.mode === 'online') {
+    if (!G.net.send({ t: 'roll' })) { note('No connection, reconnecting...'); G.net.probe(); refreshDice(); return; }
+    G.rollSent = Date.now();
+  }
   else offlineRoll();
 }
 $('diceBtn').addEventListener('pointerdown', tapDice);
@@ -397,6 +447,7 @@ function nextOffline() {
 }
 
 async function offlineRoll() {
+  if (G.s.game === 'snakes') return snakesOfflineRoll();
   const s = G.s; G.busy = true; G.turnEnds = null; refreshDice();
   const d = 1 + Math.floor(Math.random() * 6);
   const r = roll(s, d);
@@ -430,6 +481,35 @@ function afterMove() {
   nextOffline();
 }
 
+// ---------- Snakes & Ladders ----------
+function startSnakes(mode, players) {
+  G = { mode, game: 'snakes', s: newSnakes(players), busy: false };
+  enterGame(mode);
+  setTimeout(nextOffline, 600);
+}
+async function snakesOfflineRoll() {
+  const s = G.s; G.busy = true; G.turnEnds = null; refreshDice();
+  const d = 1 + Math.floor(Math.random() * 6);
+  spinDiceFace();
+  await board.throwDice(d, sfx);
+  stopDiceSpin(d);
+  const P = playerOf(s, s.turn);
+  const ev = snakeRoll(s, d);
+  if (!ev) { G.busy = false; return; }
+  await board.animateMove(ev, s.pos, sfx);
+  if (!G || G.s !== s) return;
+  snakeNotes(ev, P);
+  afterMove();
+}
+function snakeNotes(ev, P) {
+  const you = P.id === pid || (G.mode !== 'online' && P.kind === 'me' && G.mode === 'bot');
+  if (ev.stay) note(`Need exactly ${GOAL - ev.from} to reach ${GOAL}`);
+  else if (ev.via === 'ladder') { toast(`${you ? 'You' : P.name} climbed a ladder: ${ev.to} → ${ev.end}`, UI[P.color]); buzz([30, 30, 30]); }
+  else if (ev.via === 'snake') { toast(`Snake bite! ${you ? 'You' : P.name} slid down to ${ev.end}`, '#E0103A'); buzz([120, 60, 120]); }
+  if (ev.won) toast(`${P.name} reached ${GOAL}!`, UI[P.color]);
+  else if (ev.extra) note('Rolled a 6, roll again!');
+}
+
 // ---------- Finish ----------
 function finishGame() {
   if (G.s && G.s.game === 'chess') return finishChess();
@@ -441,7 +521,7 @@ function finishGame() {
   const winner = P(ranks[0]);
   const iWon = me && winner.id === pid;
   $('winTitle').textContent = iWon ? 'You won!' : `${winner.name} won!`;
-  $('winSub').textContent = iWon ? 'All 4 of your players made it home' : 'Good game! Try again?';
+  $('winSub').textContent = iWon ? (s.game === 'snakes' ? 'You reached 100 first!' : 'All 4 of your players made it home') : (s.game === 'snakes' ? `${winner.name} reached 100 first` : 'Good game! Try again?');
   const podOrder = [1, 0, 2].filter(i => i < ranks.length);
   const H = [150, 110, 80];
   $('podium').innerHTML = podOrder.map(i => { const p = P(ranks[i]); return `<div class="col center gap10"><div>${body(p.look, p.color, 120)}</div><b>${esc(p.name)}</b><div class="pod" style="height:${H[i]}px;background:${UI[p.color]};border-color:${UI_EDGE[p.color]};color:${UI_FG[p.color]}">${i + 1}</div></div>`; }).join('');
@@ -457,14 +537,17 @@ $('winAgain').onclick = () => {
   if (!G) return show('home');
   if (G.mode === 'online') { G.net.send({ t: 'again' }); return; }
   if (G.s && G.s.game === 'chess') return startChess(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
-  startOffline(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, color: p.color, kind: p.kind, look: p.look })));
+  const again = G.s.players.map(p => ({ id: p.id, name: p.name, color: p.color, kind: p.kind, look: p.look }));
+  if (G.s.game === 'snakes') startSnakes(G.mode, again); else startOffline(G.mode, again);
 };
 $('winHome').onclick = () => { if (G && G.mode === 'online') endOnline(); G = null; show('gamehome'); };
 
 // ---------- Chess ----------
 let cboard = null;
+function dropCBoard() { if (cboard) { cboard.destroy(); cboard = null; } }
 function ensureCBoard() {
-  if (!cboard) { cboard = new Chess3D($('cboard')); cboard.onTap = chessTap; }
+  if (cboard && cboard.dead) cboard = null;
+  if (!cboard) { cboard = new Chess3D(freshCanvas('cboard')); cboard.onTap = chessTap; }
   else cboard.resize();
   cboard.paused = false;
   return cboard;
@@ -524,6 +607,7 @@ function myChessColor() {
   return p && p.kind === 'me' ? s.turn : other(s.turn);
 }
 function enterChess() {
+  dropBoard();
   show('chess');
   const b = ensureCBoard();
   b.setPosition(G.s.fen); b.clearMarks();
@@ -634,7 +718,21 @@ function nextChess() {
   } else if (s.check) sfx('turn');
   chessTick();
 }
+// Why a piece has no move, in plain words (shown with move help on).
+function explainStuck(g, sq, pc) {
+  let why = 'This piece has no free square right now.';
+  if (g.in_check()) why = 'Your King (Raja) is in check. First move a piece that saves him.';
+  else if (pc.type === 'p') why = 'This pawn is blocked: a piece is standing right in front of it. Pawns can’t capture straight ahead, only one square diagonally.';
+  else if (pc.type !== 'k') {
+    // Pinned: with this piece gone, its own King would be in check.
+    const t = new Chess(g.fen()); t.remove(sq);
+    if (t.in_check()) why = 'This piece is protecting your King: moving it would put him in check.';
+  }
+  $('cHintS').textContent = why; $('cHint').classList.add('show', 'warn');
+  buzz([30]);
+}
 function showHint(type) {
+  $('cHint').classList.remove('warn');
   const h = HELP[type];
   $('cHintIc').innerHTML = PIECE_W[type]; $('cHintT').textContent = h[0]; $('cHintS').textContent = h[1];
   $('cHint').classList.add('show');
@@ -648,7 +746,7 @@ function chessTap(sq) {
     sfx('click'); G.sel = sq;
     // Help (dots and the piece card) shows only on the phone of the player whose turn it is.
     const moves = g.moves({ square: sq, verbose: true });
-    if (settings.chessHelp) { cboard.select(sq, moves); showHint(pc.type); if (!moves.length) note('This piece can’t move now'); }
+    if (settings.chessHelp) { cboard.select(sq, moves); showHint(pc.type); if (!moves.length) explainStuck(g, sq, pc); }
     else { cboard.select(sq, null); hideHint(); }
     return;
   }
@@ -669,7 +767,10 @@ function askPromotion(color, done) {
 }
 function sendChessMove(mv) {
   cboard.clearMarks();
-  if (G.mode === 'online') { G.sent = Date.now(); G.net.send({ t: 'cmove', from: mv.from, to: mv.to, promotion: mv.promotion || 'q', seq: G.s.seq }); return; }
+  if (G.mode === 'online') {
+    if (!G.net.send({ t: 'cmove', from: mv.from, to: mv.to, promotion: mv.promotion || 'q', seq: G.s.seq })) { note('No connection, try again in a moment'); G.net.probe(); return; }
+    G.sent = Date.now(); return;
+  }
   playChess(mv);
 }
 async function playChess(mv) {
@@ -769,6 +870,7 @@ $('joinCode').addEventListener('input', () => { $('joinErr').textContent = ''; }
 function openRoom(code) {
   if (G && G.net) endOnline();
   G = { mode: 'online', game: GAME, code, lobby: [], host: false, s: null, busy: false, speaking: new Set(), q: Promise.resolve(), chat: [], unread: 0 };
+  store.set('room', { code, game: GAME, at: Date.now() });
   setBadges();
   G.net = new Net({
     message: m => {
@@ -795,8 +897,12 @@ function openRoom(code) {
     syncMicButtons();
   });
 }
+// The "Waiting for network" banner shows only if reconnecting takes more than 2.5 seconds,
+// so a quick switch between Wi-Fi and mobile data does not flash it.
 function setNetState(st) {
-  $('netBanner').classList.toggle('show', st !== 'online');
+  clearTimeout(setNetState.t);
+  if (st === 'online') $('netBanner').classList.remove('show');
+  else setNetState.t = setTimeout(() => { if (G && G.net) $('netBanner').classList.add('show'); }, 2500);
   const el = $('netState');
   el.textContent = st === 'online' ? 'Online' : 'Reconnecting...';
   el.className = 'pill ' + (st === 'online' ? 'ok' : 'bad');
@@ -804,6 +910,8 @@ function setNetState(st) {
 function endOnline() {
   if (!G) return;
   closeChat();
+  clearTimeout(setNetState.t);
+  store.set('room', null);
   if (G.net) G.net.close();
   if (G.voice) G.voice.stop();
   $('netBanner').classList.remove('show');
@@ -827,7 +935,7 @@ function syncMicButtons() {
 function renderLobby() {
   if (!G) return;
   const L = G.lobby, max = G.game === 'chess' ? 2 : 4;
-  $('lobbyTitle').textContent = G.game === 'chess' ? 'Chess room' : 'Ludo room';
+  $('lobbyTitle').textContent = GAME_NAME[G.game || 'ludo'] + ' room';
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
   const rows = L.map((p, i) => {
@@ -850,7 +958,7 @@ $('lobbyStart').onclick = () => { if (G && G.host) { sfx('click'); G.net.send({ 
 $('lobbyBack').onclick = () => confirmBox('Leave the room?', 'You will leave this room.', 'Leave', 'Stay', () => { endOnline(); G = null; show('gamehome'); });
 $('lobbyShare').onclick = () => {
   if (!G) return;
-  const text = `Let's play ${G.game === 'chess' ? 'Chess' : 'Ludo'} on Pitara! Open the app, tap "Join a room" and enter code: ${G.code}`;
+  const text = `Let's play ${GAME_NAME[G.game || 'ludo']} on Pitara! Open the app, tap "Join a room" and enter code: ${G.code}`;
   if (window.LDNative && window.LDNative.shareWhatsApp) window.LDNative.shareWhatsApp(text);
   else window.location.href = 'https://wa.me/?text=' + encodeURIComponent(text);
 };
@@ -931,6 +1039,20 @@ async function onNet(m) {
       if (G.s.over) { setTimeout(finishGame, 600); break; }
       if (playerOf(G.s, G.s.turn).id === pid) sfx('turn');
       break;
+    case 'srolled': {
+      G.busy = true; G.rollSent = 0; refreshDice();
+      spinDiceFace();
+      await board.throwDice(m.ev.dice, sfx);
+      stopDiceSpin(m.ev.dice);
+      if (board.animateMove && board.kind === 'snakes') await board.animateMove(m.ev, m.s.pos, sfx);
+      board.diceIdle();
+      G.s = m.s; G.turnEnds = m.turnEnds; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+      snakeNotes(m.ev, playerOf(G.s, m.ev.color));
+      G.busy = false; renderCards(); refreshDice();
+      if (G.s.over) setTimeout(finishGame, 900);
+      else if (playerOf(G.s, G.s.turn).id === pid) sfx('turn');
+      break;
+    }
     case 'cmoved': await onChessMoved(m); break;
     case 'cend': onChessEnd(m); break;
     case 'chat': onChat(m); break;
@@ -1035,6 +1157,11 @@ $('setRules').onclick = () => {
   <li>Three 6s in a row and your turn is lost.</li>
   <li>You need the exact number to reach the centre.</li>
   <li>Get all 4 of your players to the centre to win.</li></ul>
+  <h3>How to play Snakes & Ladders</h3><ul>
+  <li>Roll the dice and walk that many squares.</li>
+  <li>Land at the bottom of a ladder: climb up. Land on a snake’s head: slide down to its tail.</li>
+  <li>A 6 gives you another roll.</li>
+  <li>You need the exact number to land on 100. First to 100 wins!</li></ul>
   <h3>How to play Chess</h3><ul>
   <li>White moves first, then you take turns.</li>
   <li>Tap a piece to pick it. With Move help on, green dots show where it can go and red rings show what it can capture.</li>
