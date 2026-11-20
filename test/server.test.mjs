@@ -23,5 +23,9 @@ while (!room.s.over && guard++ < 5000) {
 check(room.s.over, 'game finished');
 // rejoin gets a sync
 const a2 = mk('a2'); room.onMsg(a2, JSON.stringify({ t: 'hello', pid: 'pa', name: 'Asha' })); check(a2.got.some(m => m.t === 'sync'), 'rejoin sync');
+// chat reaches everyone and new joiners get history
+room.onMsg(b, JSON.stringify({ t: 'chat', text: '  hello   there ' }));
+check(a2.got.some(m => m.t === 'chat' && m.text === 'hello there' && m.name === 'Bablu'), 'chat relay');
+const a3 = mk('a3'); room.onMsg(a3, JSON.stringify({ t: 'hello', pid: 'pa', name: 'Asha' })); check(a3.got.some(m => m.t === 'chatlog' && m.list.length === 1), 'chat history');
 room.clearTurn();
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);

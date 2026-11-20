@@ -1,6 +1,18 @@
 // Live voice chat: every player connects to every other player (WebRTC mesh, max 4 people).
 // Signalling messages go through the room server.
-const ICE = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+let ICE = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+
+// Ask the room server for relay (TURN) servers so voice works on mobile networks too.
+export async function loadIce(base) {
+  if (!base) return;
+  try {
+    const r = await fetch(base + '/turn');
+    if (!r.ok) return;
+    const j = await r.json();
+    const list = Array.isArray(j.iceServers) ? j.iceServers : (j.iceServers ? [j.iceServers] : []);
+    if (list.length) ICE = ICE.concat(list);
+  } catch (e) { /* STUN only */ }
+}
 
 export class Voice {
   constructor(send, onSpeaking) {

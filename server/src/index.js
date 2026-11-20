@@ -11,6 +11,7 @@ export default {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'ludo-dhamaal' });
+    if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/new' && req.method === 'POST') {
       for (let i = 0; i < 6; i++) {
         const code = randomCode();
@@ -30,6 +31,21 @@ export default {
   }
 };
 
+// Voice relay servers from Cloudflare Realtime TURN, if the keys are set on this Worker.
+async function turn(env) {
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return json({ iceServers: [] });
+  try {
+    const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ttl: 86400 })
+    });
+    if (!r.ok) return json({ iceServers: [] });
+    const j = await r.json();
+    return json({ iceServers: j.iceServers || [] });
+  } catch (e) { return json({ iceServers: [] }); }
+}
+
 function json(o, status) { return new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json', ...CORS } }); }
 function randomCode() { const b = new Uint8Array(5); crypto.getRandomValues(b); return Array.from(b, x => CHARS[x % CHARS.length]).join(''); }
 function rollDie() { const b = new Uint8Array(1); do { crypto.getRandomValues(b); } while (b[0] >= 252); return (b[0] % 6) + 1; }
@@ -47,6 +63,7 @@ export class Room {
     this.moves = [];
     this.turnTimer = null; this.turnEnds = null;
     this.emptyTimer = null;
+    this.chat = [];
   }
 
   async fetch(req) {
@@ -90,7 +107,16 @@ export class Room {
       case 'start': this.start(me); break;
       case 'roll': this.doRoll(me); break;
       case 'move': this.doMove(me, m.token); break;
-      case 'emoji': if (typeof m.e === 'string' && m.e.length <= 8) this.all({ t: 'emoji', from: me, e: m.e }); break;
+      case 'chat': {
+        const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (!text) break;
+        const now = Date.now();
+        if (p.lastChat && now - p.lastChat < 400) break;
+        p.lastChat = now;
+        const msg = { t: 'chat', from: me, name: p.name, text, at: now };
+        this.chat.push(msg); if (this.chat.length > 50) this.chat.shift();
+        this.all(msg); break;
+      }
       case 'rtc': { const to = this.wsOf(m.to); if (to && m.data && JSON.stringify(m.data).length < 20000) this.send(to, { t: 'rtc', from: me, data: m.data }); break; }
       case 'again': if (me === this.host && this.s && this.s.over) { this.s = null; this.clearTurn(); this.players = this.players.filter(x => x.connected); this.all({ t: 'lobbyAgain' }); this.lobby(); } break;
       case 'leave': this.leave(ws, me); break;
@@ -115,6 +141,7 @@ export class Room {
     this.sockets.set(ws, pid);
     if (this.emptyTimer) { clearTimeout(this.emptyTimer); this.emptyTimer = null; }
     this.lobby();
+    this.send(ws, { t: 'chatlog', list: this.chat });
     if (this.s) this.send(ws, { t: 'sync', s: this.s, moves: this.s.rolled ? this.moves : [], turnEnds: this.turnEnds });
   }
 
@@ -143,7 +170,7 @@ export class Room {
 
   armEmpty() {
     if (this.sockets.size || this.emptyTimer) return;
-    this.emptyTimer = setTimeout(() => { if (!this.sockets.size) { this.players = []; this.s = null; this.host = null; this.claimed = false; this.clearTurn(); } }, 10 * 60 * 1000);
+    this.emptyTimer = setTimeout(() => { if (!this.sockets.size) { this.players = []; this.s = null; this.host = null; this.claimed = false; this.chat = []; this.clearTurn(); } }, 10 * 60 * 1000);
   }
 
   start(pid) {

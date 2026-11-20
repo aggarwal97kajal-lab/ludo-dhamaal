@@ -20,7 +20,8 @@ export const LOOKS = [
 ];
 
 const ease = k => 1 - Math.pow(1 - k, 3);
-const PS = 1.15; // size of the people on the board
+const PS = 1.0; // size of the people on the board
+const CHAR = ['red', 'green', 'yellow', 'blue']; // picture for each team
 
 export class Board3D {
   constructor(canvas) {
@@ -176,58 +177,37 @@ export class Board3D {
     for (let i = 0; i < 90; i++) { const m = new T.Mesh(cg, new T.MeshBasicMaterial({ color: cc[i % 6], side: 2 })); m.visible = false; S.add(m); this.conf.push({ m, v: new T.Vector3(), l: 0 }); }
 
     this.ringG = new T.TorusGeometry(0.42, 0.06, 10, 36); this.ringG.rotateX(Math.PI / 2);
+    this.shadowG = new T.CircleGeometry(0.34, 24);
+    this.shadowM = new T.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28, depthWrite: false });
+    this.baseG = new T.TorusGeometry(0.3, 0.035, 8, 32); this.baseG.rotateX(Math.PI / 2);
     // The board never moves: only people and the dice need to cast shadows.
     S.traverse(o => { if (o.isMesh && o !== this.dice) o.castShadow = false; });
   }
 
-  // ---------- People ----------
-  person(color, look) {
-    const M = this.mat.bind(this), g = new T.Group(), body = new T.Group(); g.add(body);
-    const mk = (geo, mat, x, y, z, par) => this.mk(geo, mat, x, y, z, par || body);
-    const shirt = M(TEAM[color], { roughness: 0.4 }), skin = M(look.skin, { roughness: 0.6 }), pants = M(look.pants, { roughness: 0.6 });
-    const hair = M(look.hair, { roughness: 0.5 }), white = M('#f7f7f7', { roughness: 0.5 }), dark = M('#151515', { roughness: 0.3 });
-    const legG = new T.CylinderGeometry(0.07, 0.065, 0.42, 10); legG.translate(0, -0.21, 0);
-    const legs = [-0.075, 0.075].map(x => {
-      const l = mk(legG, pants, x, 0.46, 0);
-      mk(new T.BoxGeometry(0.13, 0.07, 0.22), look.outfit === 'kurta' ? M('#6b3e1e') : white, 0, -0.43, 0.03, l);
-      return l;
-    });
-    if (look.outfit === 'kurta') {
-      mk(new T.CylinderGeometry(0.15, 0.2, 0.62, 16), shirt, 0, 0.6, 0);
-    } else {
-      mk(new T.CylinderGeometry(0.15, 0.135, 0.44, 16), shirt, 0, 0.68, 0);
-      mk(new T.CylinderGeometry(0.14, 0.14, 0.05, 16), dark, 0, 0.47, 0);
+  // ---------- People (cartoon character pictures standing on the board) ----------
+  charTex(color) {
+    this.texCache = this.texCache || {};
+    if (!this.texCache[color]) {
+      const t = new T.TextureLoader().load('img/' + CHAR[color] + '.png', tex => { this.texAspect[color] = tex.image.width / tex.image.height; this.people[color].forEach(p => p.userData.fit()); });
+      t.anisotropy = 4; this.texCache[color] = t;
     }
-    const sh = mk(new T.SphereGeometry(0.155, 16, 10), shirt, 0, 0.87, 0); sh.scale.set(1.25, 0.45, 0.85);
-    const armG = new T.CylinderGeometry(0.045, 0.042, 0.36, 8); armG.translate(0, -0.18, 0);
-    const slG = new T.CylinderGeometry(0.058, 0.055, look.outfit === 'kurta' ? 0.3 : 0.14, 8); slG.translate(0, -0.07, 0);
-    const arms = [-1, 1].map(s => {
-      const a = mk(armG, skin, s * 0.2, 0.87, 0);
-      mk(slG, shirt, 0, 0, 0, a);
-      mk(new T.SphereGeometry(0.05, 8, 6), skin, 0, -0.37, 0, a);
-      a.rotation.z = s * 0.12; return a;
-    });
-    mk(new T.CylinderGeometry(0.05, 0.055, 0.08, 8), skin, 0, 0.93, 0);
-    const head = mk(new T.SphereGeometry(0.15, 20, 16), skin, 0, 1.07, 0); head.scale.set(0.95, 1.05, 1);
-    [-1, 1].forEach(s => mk(new T.SphereGeometry(0.03, 8, 6), skin, s * 0.145, 1.07, 0));
-    [-1, 1].forEach(s => {
-      mk(new T.SphereGeometry(0.026, 8, 6), M('#ffffff'), s * 0.05, 1.09, 0.13);
-      mk(new T.SphereGeometry(0.017, 8, 6), dark, s * 0.05, 1.09, 0.148);
-    });
-    mk(new T.SphereGeometry(0.018, 6, 6), M(look.skin, { roughness: 0.4, emissive: '#000' }), 0, 1.06, 0.15);
-    const mouth = mk(new T.TorusGeometry(0.035, 0.008, 6, 12, Math.PI), M('#8a2a2a'), 0, 1.02, 0.14); mouth.rotation.z = Math.PI;
-    if (look.style === 'cap') {
-      mk(new T.CylinderGeometry(0.15, 0.155, 0.1, 16), white, 0, 1.2, 0);
-      const mu = mk(new T.BoxGeometry(0.11, 0.02, 0.02), M('#3a3a3a'), 0, 1.045, 0.147);
-      mu.rotation.z = 0;
-    } else {
-      mk(new T.SphereGeometry(0.158, 20, 14, 0, Math.PI * 2, 0, 1.45), hair, 0, 1.09, -0.01);
-      if (look.style === 'long') { const b = mk(new T.BoxGeometry(0.3, 0.32, 0.08), hair, 0, 0.97, -0.1); b.scale.set(1, 1, 1); }
-      if (look.style === 'spiky') { for (let i = -2; i <= 2; i++) { const c = mk(new T.ConeGeometry(0.035, 0.09, 6), hair, i * 0.05, 1.235, -0.02); c.rotation.z = -i * 0.25; } }
-    }
-    g.userData = { color, legs, arms, body, ph: Math.random() * 6, hop: 2 + Math.random() * 5 };
+    return this.texCache[color];
+  }
+
+  person(color) {
+    this.texAspect = this.texAspect || {};
+    const g = new T.Group();
+    const shadow = new T.Mesh(this.shadowG, this.shadowM); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; g.add(shadow);
+    const ring = new T.Mesh(this.baseG, this.mat(TEAM[color], { emissive: TEAM[color], emissiveIntensity: 0.35 })); ring.position.y = 0.03; g.add(ring);
+    const mat = new T.SpriteMaterial({ map: this.charTex(color), alphaTest: 0.35, transparent: true });
+    const sp = new T.Sprite(mat); sp.center.set(0.5, 0); g.add(sp);
+    sp.userData.owner = g;
+    const H = 1.9;
+    const u = g.userData = { color, sp, ph: Math.random() * 6, hop: 2 + Math.random() * 5, flip: 1, sq: 1, tilt: 0 };
+    u.fit = () => { const a = this.texAspect[color] || 0.48; sp.scale.set(H * a * u.flip / u.sq, H * u.sq, 1); mat.rotation = u.tilt; };
+    u.pose = (squash, tilt) => { u.sq = squash; u.tilt = tilt; u.fit(); };
+    u.fit();
     g.scale.setScalar(PS);
-    g.traverse(o => { if (o.isMesh) o.userData.owner = g; });
     this.S.add(g);
     return g;
   }
@@ -238,7 +218,7 @@ export class Board3D {
     this.inPlay = colors;
     colors.forEach(c => {
       for (let i = 0; i < 4; i++) {
-        const p = this.person(c, looks[c] || LOOKS[c]);
+        const p = this.person(c);
         p.userData.idx = i;
         this.people[c].push(p);
       }
@@ -309,20 +289,18 @@ export class Board3D {
       const a = [p.position.x, p.position.z];
       const last = q === path[path.length - 1];
       const s = last ? this.spot(ev.color, ev.token, q, tokensAfter) : this.spot(ev.color, ev.token, q, null);
-      p.rotation.y = Math.atan2(s[0] - a[0], s[2] - a[1]);
+      this.faceWay(p, a[0], a[1], s[0], s[2]);
       if (sound) sound('hop');
       await this.tween(0.26, k => {
         p.position.set(a[0] + (s[0] - a[0]) * k, s[1] + Math.sin(k * Math.PI) * 0.55, a[1] + (s[2] - a[1]) * k);
-        const w = Math.sin(k * Math.PI * 2) * 0.8;
-        u.legs[0].rotation.x = w; u.legs[1].rotation.x = -w; u.arms[0].rotation.x = -w; u.arms[1].rotation.x = w;
-        u.body.scale.set(1 - Math.sin(k * Math.PI) * 0.06, 1 + Math.sin(k * Math.PI) * 0.12, 1 - Math.sin(k * Math.PI) * 0.06);
+        u.pose(1 + Math.sin(k * Math.PI) * 0.1, Math.sin(k * Math.PI * 2) * 0.14 * u.flip);
       });
-      u.body.scale.set(1, 1, 1);
+      u.pose(0.86, 0); await this.tween(0.06, k => u.pose(0.86 + k * 0.14, 0));
       this.puff(s[0], s[2]);
       p.scale.setScalar(PS * s[3]);
       p.userData.base = s[1];
     }
-    u.legs.concat(u.arms).forEach(l => l.rotation.x = 0);
+    u.pose(1, 0);
     if (ev.captured.length) {
       this.shake = 0.6;
       if (sound) sound('capture');
@@ -333,17 +311,24 @@ export class Board3D {
         const s = this.spot(cp.color, cp.token, -1, tokensAfter);
         return this.tween(1.25, k => {
           v.position.set(a[0] + (s[0] - a[0]) * k, 0.11 + Math.sin(k * Math.PI) * 5.5 + 0.16 * k, a[1] + (s[2] - a[1]) * k);
-          v.rotation.x = k * Math.PI * 4;
-        }).then(() => { v.rotation.set(0, this.th, 0); v.position.y = s[1]; v.userData.base = s[1]; v.scale.setScalar(PS); this.puff(s[0], s[2]); });
+          v.userData.pose(1, k * Math.PI * 4);
+        }).then(() => { v.userData.pose(1, 0); v.position.y = s[1]; v.userData.base = s[1]; v.scale.setScalar(PS); this.puff(s[0], s[2]); });
       });
       const cheer = this.tween(1.25, k => {
         p.position.y = 0.11 + Math.abs(Math.sin(k * Math.PI * 4)) * 0.4;
-        u.arms[0].rotation.z = -2.7; u.arms[1].rotation.z = 2.7;
-      }).then(() => { u.arms[0].rotation.z = -0.12; u.arms[1].rotation.z = 0.12; p.position.y = p.userData.base; });
+        u.pose(1 + Math.abs(Math.sin(k * Math.PI * 4)) * 0.12, Math.sin(k * Math.PI * 8) * 0.1);
+      }).then(() => { u.pose(1, 0); p.position.y = p.userData.base; });
       await Promise.all(flights.concat([cheer]));
     }
     if (ev.finished) { if (sound) sound('finish'); this.burst(p.position.x, 1, p.position.z); }
     this.placeAll(tokensAfter);
+  }
+
+  // Turn the picture left or right so the character faces the way it walks on screen.
+  faceWay(p, x0, z0, x1, z1) {
+    const a = new T.Vector3(x0, 0, z0).project(this.cam), b = new T.Vector3(x1, 0, z1).project(this.cam);
+    const dx = b.x - a.x;
+    if (Math.abs(dx) > 0.002) { p.userData.flip = dx >= 0 ? 1 : -1; p.userData.fit(); }
   }
 
   highlight(color, idxs, onPick) {
@@ -396,8 +381,8 @@ export class Board3D {
     if (!this.onPick || !this.hl.length) return;
     const r = this.canvas.getBoundingClientRect();
     const m = new T.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    const ray = new T.Raycaster(); ray.setFromCamera(m, this.cam);
-    const hits = ray.intersectObjects(this.hl.map(h => h.p), true);
+    const ray = new T.Raycaster(); ray.setFromCamera(m, this.cam); ray.camera = this.cam;
+    const hits = ray.intersectObjects(this.hl.map(h => h.p.userData.sp), false);
     let pick = null;
     if (hits.length) { const own = hits[0].object.userData.owner; pick = this.hl.find(h => h.p === own); }
     if (!pick) {
@@ -434,9 +419,9 @@ export class Board3D {
         let y = (u.base || 0.11) + Math.abs(Math.sin(T0 * 2.4 + u.ph)) * 0.03;
         if (u.hop < 0) {
           const k = -u.hop / 0.5; y += Math.sin(Math.min(k, 1) * Math.PI) * 0.35;
-          u.arms[0].rotation.z = -2.5; u.arms[1].rotation.z = 2.5;
-          if (k >= 1) { u.hop = 4 + Math.random() * 7; u.arms[0].rotation.z = -0.12; u.arms[1].rotation.z = 0.12; }
-        } else { u.arms[0].rotation.x = Math.sin(T0 * 2 + u.ph) * 0.12; u.arms[1].rotation.x = -Math.sin(T0 * 2 + u.ph) * 0.12; }
+          u.pose(1 + Math.sin(Math.min(k, 1) * Math.PI) * 0.08, 0);
+          if (k >= 1) { u.hop = 4 + Math.random() * 7; u.pose(1, 0); }
+        } else if (u.tilt === 0 && Math.random() < 0.002) { u.flip = -u.flip; u.fit(); }
         p.position.y = y;
       }));
     }

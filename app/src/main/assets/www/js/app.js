@@ -1,8 +1,8 @@
 import { newGame, roll, move, passTurn, botChoice, seatColors, playerOf, FINISH } from './rules.js';
-import { Board3D, LOOKS, TEAM } from './board3d.js';
+import { Board3D } from './board3d.js';
 import { sfx, buzz, music, prefs, unlock } from './sound.js';
 import { Net } from './net.js';
-import { Voice } from './voice.js';
+import { Voice, loadIce } from './voice.js';
 
 const $ = id => document.getElementById(id);
 const UI = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0'];
@@ -11,7 +11,6 @@ const UI_FG = ['#FFFFFF', '#062B14', '#3A2600', '#FFFFFF'];
 const CNAME = ['Red', 'Green', 'Yellow', 'Blue'];
 const MIC = '<svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg>';
 const MIC_OFF = '<svg viewBox="0 0 24 24"><path d="M2 2l20 20M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.9-.7M17 16.9A7 7 0 0 1 5 12v-2M19 10v2a7 7 0 0 1-.1 1.2M12 19v3"/></svg>';
-const EMOJIS = ['😂', '🔥', '😡', '👏', '😭', '🙏', '😎', '🤣'];
 const BOT_NAMES = ['Raju', 'Pinky', 'Chintu'];
 
 // ---------- Storage ----------
@@ -25,36 +24,11 @@ let pid = store.get('pid', null);
 if (!pid) { pid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); store.set('pid', pid); }
 Object.assign(prefs, { sound: settings.sound, music: settings.music, vibrate: settings.vibrate });
 
-// ---------- Person drawings for the UI ----------
-const HAIR = {
-  short: 'M12.6 10 Q12 2.5 20 2.6 Q28 2.5 27.4 10 Q25 6 20 6.5 Q15 6 12.6 10 Z',
-  long: 'M12 14 Q11 2.5 20 2.6 Q29 2.5 28 14 L28.5 22 L26 22 Q27 9 20 6.5 Q13 9 14 22 L11.5 22 Z',
-  spiky: 'M12.4 10.5 L12 4 L14.5 5.5 L15 1.8 L17.8 4.4 L20 1 L22.2 4.4 L25 1.8 L25.5 5.5 L28 4 L27.6 10.5 Q24 6.8 20 7 Q16 6.8 12.4 10.5 Z',
-  cap: 'M12.9 9 L13 5.6 Q13 1 20 1 Q27 1 27 5.6 L27.1 9 Z'
-};
-function personSVG(look, shirt, w, h, bust) {
-  const kurta = look.outfit === 'kurta';
-  const vb = bust ? '6 0 28 34' : '0 0 40 72';
-  const torso = kurta ? 'M13 20.5 Q20 18.8 27 20.5 L32.5 23.5 L33.4 38.5 L28.6 38.9 L29.2 57 L10.8 57 L11.4 38.9 L6.6 38.5 L7.5 23.5 Z'
-    : 'M13 21 Q20 19 27 21 L32 24 L33 31 L28 31 L27 46 L13 46 L12 31 L7 31 L8 24 Z';
-  const hairFill = look.style === 'cap' ? '#ffffff' : look.hair;
-  let s = `<svg width="${w}" height="${h}" viewBox="${vb}" aria-hidden="true">`;
-  if (!bust) {
-    s += '<ellipse cx="20" cy="69" rx="11" ry="2.6" fill="#000" opacity=".3"/>';
-    s += `<path d="M14 44 L13.5 66 L19 66 L20 48 L21 66 L26.5 66 L26 44 Z" fill="${look.pants}"/>`;
-    s += `<rect x="11.5" y="64.5" width="8" height="4" rx="2" fill="${kurta ? '#6b3e1e' : '#f5f5f5'}"/><rect x="20.5" y="64.5" width="8" height="4" rx="2" fill="${kurta ? '#6b3e1e' : '#f5f5f5'}"/>`;
-    s += `<rect x="7.5" y="24" width="4.6" height="19" rx="2.3" fill="${look.skin}"/><rect x="27.9" y="24" width="4.6" height="19" rx="2.3" fill="${look.skin}"/>`;
-  }
-  if (look.style === 'long') s += `<path d="M11.6 12 Q11 1.6 20 2 Q29 1.6 28.4 12 L29.4 27 Q26.5 28.5 24.2 26.2 L24.5 16 L15.5 16 L15.8 26.2 Q13.5 28.5 10.6 27 Z" fill="${look.hair}"/>`;
-  s += `<path d="${torso}" fill="${shirt}"/>`;
-  s += `<rect x="17.5" y="16" width="5" height="5" fill="${look.skin}"/><circle cx="13" cy="11.5" r="1.6" fill="${look.skin}"/><circle cx="27" cy="11.5" r="1.6" fill="${look.skin}"/><ellipse cx="20" cy="11" rx="7" ry="7.8" fill="${look.skin}"/>`;
-  s += `<path d="${HAIR[look.style] || HAIR.short}" fill="${hairFill}"/>`;
-  s += '<circle cx="17.3" cy="11.6" r="1" fill="#1a1a1a"/><circle cx="22.7" cy="11.6" r="1" fill="#1a1a1a"/>';
-  if (look.style === 'cap') s += '<path d="M16.6 15 Q18.5 14 20 14.8 Q21.5 14 23.4 15 Q22.5 16 20 15.6 Q17.5 16 16.6 15 Z" fill="#3a3a3a"/>';
-  else s += '<path d="M18 14.8 Q20 16.3 22 14.8" stroke="#7a3b2b" stroke-width=".9" fill="none" stroke-linecap="round"/>';
-  return s + '</svg>';
-}
-const avatar = (look, color, cls) => `<div class="av ${cls || ''}" style="border-color:${UI_EDGE[color]};background:${UI[color]}">${personSVG(look, '#ffffff', 40, 48, true)}</div>`;
+const CHAR = ['red', 'green', 'yellow', 'blue'];
+const CHAR_NAME = ['Riya', 'Arjun', 'Dadaji', 'Chotu'];
+const face = c => `img/${CHAR[c]}-face.png`;
+const body = (c, h) => `<img class="body" src="img/${CHAR[c]}.png" alt="" style="height:${h}px">`;
+const avatar = (look, color, cls) => `<div class="av ${cls || ''}" style="border-color:${UI_EDGE[color]};background:${UI[color]}"><img src="${face(color)}" alt=""></div>`;
 
 // ---------- Screens ----------
 let current = 'splash';
@@ -77,7 +51,7 @@ function confirmBox(title, text, yes, no, onYes) {
 
 // ---------- Splash ----------
 function splash() {
-  $('splashCrowd').innerHTML = [0, 1, 2, 3].map(i => personSVG(LOOKS[[0, 1, 2, 3][i]], UI[i], 50, 90)).join('');
+  $('splashCrowd').innerHTML = [0, 1, 2, 3].map(i => body(i, 110)).join('');
   let p = 0;
   const t = setInterval(() => {
     p = Math.min(100, p + 9 + Math.random() * 14);
@@ -96,12 +70,11 @@ function openProfile() {
   renderProfile(); show('profile');
 }
 function renderProfile() {
-  $('pfPreview').innerHTML = personSVG(LOOKS[pfLook], UI[pfColor], 128, 156, true);
-  $('pfLooks').innerHTML = LOOKS.map((l, i) => `<button class="lookbtn ${i === pfLook ? 'on' : ''}" data-l="${i}" aria-label="Look ${i + 1}">${personSVG(l, UI[pfColor], 54, 66, true)}</button>`).join('');
-  $('pfColors').innerHTML = UI.map((c, i) => `<button class="colbtn ${i === pfColor ? 'on' : ''}" data-c="${i}" style="background:${c}" aria-label="${CNAME[i]} colour"></button>`).join('');
+  $('pfPreview').innerHTML = `<img src="${face(pfColor)}" alt="">`;
+  $('pfPreview').style.background = UI[pfColor];
+  $('pfLooks').innerHTML = [0, 1, 2, 3].map(i => `<button class="charbtn ${i === pfColor ? 'on' : ''}" data-c="${i}" style="background:${UI[i]}" aria-label="${CHAR_NAME[i]}">${body(i, 118)}<span>${CHAR_NAME[i]}</span></button>`).join('');
 }
-$('pfLooks').addEventListener('click', e => { const b = e.target.closest('[data-l]'); if (b) { pfLook = +b.dataset.l; sfx('click'); renderProfile(); } });
-$('pfColors').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) { pfColor = +b.dataset.c; sfx('click'); renderProfile(); } });
+$('pfLooks').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) { pfColor = +b.dataset.c; pfLook = pfColor; sfx('click'); renderProfile(); } });
 $('pfName').addEventListener('input', () => { $('pfErr').textContent = ''; });
 $('pfSave').onclick = () => {
   const name = $('pfName').value.trim().replace(/\s+/g, ' ');
@@ -112,7 +85,7 @@ $('pfSave').onclick = () => {
 
 // ---------- Home ----------
 function renderHome() {
-  $('homeAv').outerHTML = `<div class="av sm" id="homeAv" style="background:${UI[profile.color]}">${personSVG(LOOKS[profile.look], '#ffffff', 40, 48, true)}</div>`;
+  $('homeAv').outerHTML = `<div class="av sm" id="homeAv" style="background:${UI[profile.color]}"><img src="${face(profile.color)}" alt=""></div>`;
   $('homeName').textContent = profile.name;
   const modes = [
     ['online', 'Create online room', 'Invite friends anywhere and talk on mic', 0, [0, 1]],
@@ -122,7 +95,7 @@ function renderHome() {
   ];
   $('modes').innerHTML = modes.map(m => `<button class="mode" data-mode="${m[0]}" style="background:${UI[m[3]]};border-color:${UI_EDGE[m[3]]};color:${UI_FG[m[3]]}">
     <div class="col grow"><span class="t">${m[1]}</span><span class="s">${m[2]}</span></div>
-    <div class="ppl">${m[4].map(i => personSVG(LOOKS[i], UI[i], 38, 68)).join('')}</div></button>`).join('');
+    <div class="ppl">${m[4].map(i => body(i, 82)).join('')}</div></button>`).join('');
   music(true);
 }
 $('modes').addEventListener('click', e => {
@@ -171,7 +144,7 @@ function ensureBoard() { if (!board) board = new Board3D($('board')); else board
 
 function toast(text, color) {
   const t = $('toast'); t.textContent = text; t.style.background = color || UI[0];
-  t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1500);
+  t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1300);
 }
 
 function setDiceFace(v) {
@@ -202,8 +175,8 @@ function renderCards() {
     const lp = G.mode === 'online' ? G.lobby.find(x => x.pid === p.id) : null;
     const micOn = lp ? lp.mic : false;
     const away = lp && !lp.connected;
-    return `<div class="gcard ${s.turn === p.color && !s.over ? 'turn' : ''} ${away ? 'away' : ''}" style="${s.turn === p.color ? '' : ''}">
-      ${avatar(LOOKS[p.look] || LOOKS[0], p.color, speaking ? 'speak' : '')}
+    return `<div data-pid="${p.id}" class="gcard ${s.turn === p.color && !s.over ? 'turn' : ''} ${away ? 'away' : ''}" style="${s.turn === p.color ? '' : ''}">
+      ${avatar(0, p.color, speaking ? 'speak' : '')}
       <div class="info"><span class="nm">${esc(p.name)}${p.id === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       ${G.mode === 'online' ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
     </div>`;
@@ -217,8 +190,16 @@ function renderCards() {
   const off = G.voice.toggleDeafen(b.dataset.deaf); toast(off ? 'Muted for you' : 'Unmuted', '#3A2490'); renderCards();
 }));
 
+// Small text under the dice for minor events, instead of a pop-up over the board.
+function note(text) {
+  if (!G) return;
+  G.note = { text, until: Date.now() + 1400 };
+  $('turnText').textContent = text;
+}
+
 function turnLabel() {
   if (!G) return '';
+  if (G.note && G.note.until > Date.now()) return G.note.text;
   const s = G.s; if (s.over) return '';
   const p = playerOf(s, s.turn);
   if (G.mode === 'online') {
@@ -252,7 +233,7 @@ function enterGame(mode) {
   show('game');
   const b = ensureBoard();
   const s = G.s;
-  const looks = {}; s.players.forEach(p => { looks[p.color] = LOOKS[p.look] || LOOKS[0]; });
+  const looks = {};
   b.setPlayers(s.order.slice(), looks);
   b.placeAll(s.tokens);
   const me = s.players.find(p => p.id === pid) || s.players[0];
@@ -262,6 +243,7 @@ function enterGame(mode) {
   $('gameRoom').textContent = mode === 'online' ? 'Room ' + G.code : (mode === 'bot' ? 'Vs computer' : 'Pass & play');
   $('gameMic').classList.toggle('hide', mode !== 'online');
   $('emojiBtn').style.visibility = mode === 'online' ? 'visible' : 'hidden';
+  setBadges();
   renderCards(); refreshDice();
 }
 
@@ -299,7 +281,6 @@ function nextOffline() {
   if (s.over) return finishGame();
   const p = playerOf(s, s.turn);
   if (p.kind === 'bot') setTimeout(() => { if (G && G.s === s) offlineRoll(); }, 750);
-  else if (G.mode === 'local') toast(`${p.name}’s turn`, UI[p.color]);
 }
 
 async function offlineRoll() {
@@ -310,8 +291,8 @@ async function offlineRoll() {
   setDiceFace(d);
   await board.throwDice(d, sfx);
   const p = playerOf(s, s.turn);
-  if (r.forfeit) { toast('Three 6s! Turn lost', '#3A2490'); await board.wait(900); passTurn(s); return afterMove(); }
-  if (!r.moves.length) { toast(p.kind === 'bot' ? 'No move' : 'No move this time', '#3A2490'); await board.wait(800); passTurn(s); return afterMove(); }
+  if (r.forfeit) { note('Three 6s, turn lost'); await board.wait(900); passTurn(s); return afterMove(); }
+  if (!r.moves.length) { note('No move'); await board.wait(700); passTurn(s); return afterMove(); }
   let pick;
   if (p.kind === 'bot') { await board.wait(350); pick = botChoice(s, s.turn, d, r.moves); }
   else if (r.moves.length === 1) { await board.wait(250); pick = r.moves[0]; }
@@ -320,7 +301,7 @@ async function offlineRoll() {
   await board.animateMove(ev, s.tokens, sfx);
   if (ev.captured.length) { const v = playerOf(s, ev.captured[0].color); toast(p.kind === 'me' && G.mode === 'bot' ? `You captured ${v.name}!` : `${p.name} captured ${v.name}!`, UI[p.color]); buzz([40, 30, 80]); }
   if (ev.won) toast(`${p.name} finished!`, UI[p.color]);
-  else if (ev.extra && !ev.captured.length) { if (d === 6) toast('Six! Roll again', UI[p.color]); else if (ev.finished) toast('Home! Roll again', UI[p.color]); }
+  else if (ev.extra) note('Roll again!');
   afterMove();
 }
 function afterMove() {
@@ -343,7 +324,7 @@ function finishGame() {
   $('winSub').textContent = iWon ? 'All 4 of your players made it home' : 'Good game! Try again?';
   const podOrder = [1, 0, 2].filter(i => i < ranks.length);
   const H = [150, 110, 80];
-  $('podium').innerHTML = podOrder.map(i => { const p = P(ranks[i]); return `<div class="col center gap10"><div>${personSVG(LOOKS[p.look] || LOOKS[0], UI[p.color], 56, 100)}</div><b>${esc(p.name)}</b><div class="pod" style="height:${H[i]}px;background:${UI[p.color]};border-color:${UI_EDGE[p.color]};color:${UI_FG[p.color]}">${i + 1}</div></div>`; }).join('');
+  $('podium').innerHTML = podOrder.map(i => { const p = P(ranks[i]); return `<div class="col center gap10"><div>${body(p.color, 120)}</div><b>${esc(p.name)}</b><div class="pod" style="height:${H[i]}px;background:${UI[p.color]};border-color:${UI_EDGE[p.color]};color:${UI_FG[p.color]}">${i + 1}</div></div>`; }).join('');
   $('winRest').innerHTML = ranks.slice(3).map((c, i) => `<div class="restrow"><b style="font-size:22px;color:#C9C1F0">${i + 4}</b><b class="grow">${esc(P(c).name)}</b><span class="small muted">Better luck next time!</span></div>`).join('');
   const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
   $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
@@ -380,14 +361,15 @@ $('joinCode').addEventListener('input', () => { $('joinErr').textContent = ''; }
 
 function openRoom(code) {
   if (G && G.net) endOnline();
-  G = { mode: 'online', code, lobby: [], host: false, s: null, busy: false, speaking: new Set(), q: Promise.resolve() };
+  G = { mode: 'online', code, lobby: [], host: false, s: null, busy: false, speaking: new Set(), q: Promise.resolve(), chat: [], unread: 0 };
+  setBadges();
   G.net = new Net({ message: m => { const g = G; if (!g || !g.net) return; g.q = g.q.then(() => onNet(m)).catch(err => console.error(err)); }, status: st => setNetState(st) });
   G.voice = new Voice((to, data) => G && G.net && G.net.send({ t: 'rtc', to, data }), (who, on) => { if (!G) return; if (on) G.speaking.add(who); else G.speaking.delete(who); if (current === 'lobby') renderLobby(); else renderCards(); });
   G.voice.setListen(settings.listen);
   G.net.join(code, { pid, name: profile.name, look: profile.look });
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
-  G.voice.start(pid, settings.automic).then(ok => {
+  loadIce(Net.serverBase()).then(() => G && G.voice ? G.voice.start(pid, settings.automic) : false).then(ok => {
     if (!G) return;
     if (!ok) toast('Mic not allowed. You can still listen.', '#3A2490');
     G.net.send({ t: 'mic', on: ok && settings.automic });
@@ -401,6 +383,7 @@ function setNetState(st) {
 }
 function endOnline() {
   if (!G) return;
+  closeChat();
   if (G.net) G.net.close();
   if (G.voice) G.voice.stop();
   G.net = null;
@@ -429,7 +412,7 @@ function renderLobby() {
     const c = L.length >= 2 ? cols[i] : i;
     const sp = G.speaking.has(p.pid);
     const st = !p.connected ? 'Offline' : sp ? 'Speaking...' : p.host ? 'Host' : 'Ready';
-    return `<div class="pcard" style="border-color:${p.pid === pid ? UI[c] : ''}">${avatar(LOOKS[p.look] || LOOKS[0], c, sp ? 'speak' : '')}
+    return `<div class="pcard" style="border-color:${p.pid === pid ? UI[c] : ''}">${avatar(0, c, sp ? 'speak' : '')}
       <div class="col grow"><span class="nm">${esc(p.name)}${p.pid === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       <span class="mic ${p.mic ? 'on' : ''}">${p.mic ? MIC : MIC_OFF}</span></div>`;
   });
@@ -473,7 +456,7 @@ async function onNet(m) {
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
       enterGame('online');
-      if (m.t === 'start') { sfx('turn'); toast('Game on!', UI[0]); }
+      if (m.t === 'start') sfx('turn');
       if (m.s.rolled && playerOf(m.s, m.s.turn).id === pid && m.moves && m.moves.length) pickOnline(m.moves);
       break;
     case 'rolled': {
@@ -482,8 +465,8 @@ async function onNet(m) {
       await board.throwDice(m.dice, sfx);
       G.s = m.s; G.turnEnds = m.turnEnds; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       const mine = playerOf(G.s, G.s.turn).id === pid;
-      if (m.forfeit) toast('Three 6s! Turn lost', '#3A2490');
-      else if (!m.moves.length) toast('No move', '#3A2490');
+      if (m.forfeit) note('Three 6s, turn lost');
+      else if (!m.moves.length) note('No move');
       else if (mine) pickOnline(m.moves);
       G.busy = false; refreshDice();
       break;
@@ -497,6 +480,7 @@ async function onNet(m) {
       const P = playerOf(G.s, ev.color);
       if (ev.captured.length) { const v = playerOf(G.s, ev.captured[0].color); toast(P.id === pid ? `You captured ${v.name}!` : (v.id === pid ? `${P.name} captured you!` : `${P.name} captured ${v.name}!`), UI[P.color]); buzz(v.id === pid ? [120, 60, 120] : [40, 30, 80]); }
       if (ev.won) toast(`${P.name} finished!`, UI[P.color]);
+      else if (ev.extra && P.id === pid) note('Roll again!');
       G.busy = false; renderCards(); refreshDice();
       if (G.s.over) setTimeout(finishGame, 900);
       else if (playerOf(G.s, G.s.turn).id === pid) sfx('turn');
@@ -505,12 +489,13 @@ async function onNet(m) {
     case 'passed':
       board.clearHighlight(); board.diceIdle();
       G.s = m.s; G.turnEnds = m.turnEnds; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
-      if (m.reason === 'timeout') toast('Time up! Turn skipped', '#3A2490');
-      if (m.reason === 'away') toast('Player offline, turn skipped', '#3A2490');
+      if (m.reason === 'timeout') note('Time up, turn skipped');
+      if (m.reason === 'away') note('Player offline, skipped');
       renderCards(); refreshDice();
       if (playerOf(G.s, G.s.turn).id === pid) sfx('turn');
       break;
-    case 'emoji': showBubble(m.e, m.from); break;
+    case 'chat': onChat(m); break;
+    case 'chatlog': G.chat = m.list || []; if ($('chat').classList.contains('show')) renderChat(); break;
     case 'rtc': await G.voice.signal(m.from, m.data); break;
     case 'lobbyAgain':
       G.s = null; show('lobby'); renderLobby(); break;
@@ -523,19 +508,53 @@ function pickOnline(moves) {
   board.highlight(s.turn, moves, i => G && G.net && G.net.send({ t: 'move', token: i, seq: s.seq }));
 }
 
-// Emoji reactions
-$('emojiPick').innerHTML = EMOJIS.map(e => `<button data-e="${e}">${e}</button>`).join('');
-$('emojiBtn').onclick = () => $('emojiPick').classList.toggle('show');
-$('emojiPick').addEventListener('click', e => {
-  const b = e.target.closest('[data-e]'); if (!b || !G || !G.net) return;
-  G.net.send({ t: 'emoji', e: b.dataset.e }); $('emojiPick').classList.remove('show');
-});
-function showBubble(e, from) {
-  if (!EMOJIS.includes(e)) return;
-  const el = document.createElement('div'); el.className = 'bubble'; el.textContent = e;
-  const idx = G && G.s ? G.s.order.indexOf((G.s.players.find(p => p.id === from) || {}).color) : 0;
-  el.style.left = (idx % 2 === 0 ? 18 : 62) + '%'; el.style.top = (idx < 2 ? 22 : 62) + '%';
-  $('bubbles').appendChild(el); setTimeout(() => el.remove(), 2300); sfx('pop');
+// ---------- Chat (online rooms) ----------
+const QUICK = ['😂', '🔥', '👏', '😡', '😭', '🙏', 'Well played!', 'Hurry up!', 'Oh no!', 'Haha', 'Good luck!'];
+$('chatQuick').innerHTML = QUICK.map(q => `<button type="button" class="${q.length <= 2 ? 'e' : ''}" data-q="${esc(q)}">${esc(q)}</button>`).join('');
+function openChat() {
+  if (!G || G.mode !== 'online') return;
+  G.unread = 0; setBadges();
+  renderChat(); $('chat').classList.add('show');
+}
+function closeChat() { $('chat').classList.remove('show'); $('chatInput').blur(); }
+$('emojiBtn').onclick = () => { sfx('click'); openChat(); };
+$('lobbyChat').onclick = () => { sfx('click'); openChat(); };
+$('chatClose').onclick = closeChat;
+$('chat').addEventListener('click', e => { if (e.target.id === 'chat') closeChat(); });
+$('chatQuick').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (b) sendChat(b.dataset.q); });
+$('chatForm').addEventListener('submit', e => { e.preventDefault(); const v = $('chatInput').value.trim(); if (v) { sendChat(v); $('chatInput').value = ''; } });
+function sendChat(text) { if (G && G.net) G.net.send({ t: 'chat', text: text.slice(0, 120) }); }
+const isBig = t => /^\p{Extended_Pictographic}{1,3}$/u.test(t);
+function renderChat() {
+  if (!G) return;
+  const list = G.chat || [];
+  $('chatList').innerHTML = list.length ? list.map(m => `<div class="msg ${m.from === pid ? 'me' : ''} ${isBig(m.text) ? 'big' : ''}">${m.from === pid || isBig(m.text) ? '' : `<b style="color:${UI_EDGE[colorOf(m.from)] || '#C9C1F0'}">${esc(m.name)}</b>`}${esc(m.text)}</div>`).join('') : '<div class="chatempty">Say hi to your friends!</div>';
+  $('chatList').scrollTop = 1e6;
+}
+function colorOf(id) {
+  if (G && G.s) { const p = G.s.players.find(x => x.id === id); if (p) return p.color; }
+  if (G && G.lobby) { const i = G.lobby.findIndex(x => x.pid === id); if (i >= 0) return seatColors(Math.max(2, G.lobby.length))[i]; }
+  return 0;
+}
+function setBadges() {
+  const n = (G && G.unread) || 0;
+  ['chatBadge', 'lobbyBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
+}
+function onChat(m) {
+  G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();
+  if ($('chat').classList.contains('show')) renderChat();
+  else if (m.from !== pid) { G.unread = (G.unread || 0) + 1; setBadges(); sfx('pop'); }
+  if (current === 'game') sayBubble(m);
+}
+function sayBubble(m) {
+  const card = document.querySelector(`.gcard[data-pid="${m.from}"]`);
+  if (!card) return;
+  const r = card.getBoundingClientRect(), g = $('game').getBoundingClientRect();
+  const el = document.createElement('div'); el.className = 'saybub' + (isBig(m.text) ? ' big' : ''); el.textContent = m.text;
+  el.style.left = Math.max(8, Math.min(g.width - 180, r.left - g.left + 46)) + 'px';
+  const below = r.top - g.top < g.height / 2;
+  el.style.top = (below ? r.bottom - g.top + 6 : r.top - g.top - 40) + 'px';
+  $('bubbles').appendChild(el); setTimeout(() => el.remove(), 3300);
 }
 
 // ---------- Settings ----------
@@ -577,7 +596,7 @@ $('setRules').onclick = () => {
 // ---------- Android back button ----------
 window.ldBack = () => {
   if ($('modal').classList.contains('show')) { closeModal(); return true; }
-  if ($('emojiPick').classList.contains('show')) { $('emojiPick').classList.remove('show'); return true; }
+  if ($('chat').classList.contains('show')) { closeChat(); return true; }
   if (current === 'game') { leaveGame(); return true; }
   if (current === 'lobby') { $('lobbyBack').onclick(); return true; }
   if (current === 'win') { $('winHome').onclick(); return true; }
