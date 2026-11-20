@@ -81,8 +81,7 @@ export class Board3D {
     let last = performance.now();
     const loop = n => {
       const dt = Math.min((n - last) / 1000, 0.1); last = n;
-      this.step(dt);
-      this.R.render(this.S, this.cam);
+      this.step(dt); if (!this.paused) this.R.render(this.S, this.cam);
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);

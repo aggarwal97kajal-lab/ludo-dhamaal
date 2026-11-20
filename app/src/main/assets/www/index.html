@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Ludo Dhamaal</title>
+<title>Pitara</title>
 <link rel="stylesheet" href="css/style.css">
 <script src="config.js"></script>
 <script src="lib/three.min.js"></script>
@@ -13,7 +13,7 @@
 <section id="splash" class="screen show">
   <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
   <div class="bigdice"><i></i><i class="r"></i><i></i><i class="r"></i><i class="red"></i><i class="r"></i><i></i><i class="r"></i><i></i></div>
-  <div class="logo"><div class="l1">Ludo</div><div class="l2">Dhamaal</div><div class="tag">Let's play!</div></div>
+  <div class="logo"><div class="l1 pit">Pitara</div><div class="tag">Ludo, Chess and more games</div></div>
   <div class="crowd" id="splashCrowd"></div>
   <div class="loadbar"><div id="loadFill"></div></div>
   <div class="small muted" id="loadText">Setting up the board...</div>
@@ -40,15 +40,23 @@
       <div class="row gap10"><div class="av sm" id="homeAv"></div><div class="col"><span class="small muted">Hello,</span><b class="name" id="homeName"></b></div></div>
       <button class="iconbtn" id="homeSettings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
-    <div class="logo sm"><div class="l1">Ludo</div><div class="l2">Dhamaal</div></div>
+    <div class="logo sm"><div class="l1 pit">Pitara</div><div class="tag">Pick a game</div></div>
+    <div class="col gap14" id="games"></div>
+  </div>
+</section>
+
+<section id="gamehome" class="screen">
+  <div class="pad col gap16 full">
+    <div class="row gap12"><button class="iconbtn back" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><span class="small muted">Pitara</span></div>
+    <div class="logo sm" id="gameLogo"></div>
     <div class="col gap14" id="modes"></div>
   </div>
 </section>
 
 <section id="setup" class="screen">
   <div class="pad col gap16 full">
-    <div class="row gap12"><button class="iconbtn back" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 id="setupTitle">Play vs computer</h2></div>
-    <div class="lbl">How many players?</div>
+    <div class="row gap12"><button class="iconbtn back" data-go="gamehome" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 id="setupTitle">Play vs computer</h2></div>
+    <div class="lbl" id="setupAsk">How many players?</div>
     <div class="row gap12" id="setupCount"></div>
     <div class="col gap10" id="setupNames"></div>
     <button class="btn gold mt-auto" id="setupGo">Start game</button>
@@ -57,7 +65,7 @@
 
 <section id="join" class="screen">
   <div class="pad col gap16 full">
-    <div class="row gap12"><button class="iconbtn back" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2>Join a room</h2></div>
+    <div class="row gap12"><button class="iconbtn back" data-go="gamehome" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2>Join a room</h2></div>
     <label class="lbl" for="joinCode">Room code</label>
     <input id="joinCode" class="input code" maxlength="5" placeholder="K7M2Q" autocomplete="off" autocapitalize="characters">
     <div class="err" id="joinErr"></div>
@@ -67,7 +75,7 @@
 
 <section id="lobby" class="screen">
   <div class="pad col gap16 full">
-    <div class="row gap12"><button class="iconbtn" id="lobbyBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2>Your room</h2><span class="pill" id="netState"></span></div>
+    <div class="row gap12"><button class="iconbtn" id="lobbyBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 id="lobbyTitle">Your room</h2><span class="pill" id="netState"></span></div>
     <div class="codebox">
       <span class="small muted">Room code</span>
       <span class="bigcode" id="lobbyCode">-----</span>
@@ -96,8 +104,6 @@
   </div>
   <div class="cards top" id="cardsTop"></div>
   <div class="cards bottom" id="cardsBottom"></div>
-  <div class="toast" id="toast"></div>
-  <div class="bubbles" id="bubbles"></div>
   <div class="gbar">
     <button class="micbtn" id="gameMic" aria-label="Mic"></button>
     <div class="col center">
@@ -109,10 +115,31 @@
   </div>
 </section>
 
+<section id="chess" class="screen">
+  <canvas id="cboard"></canvas>
+  <div class="gtop">
+    <button class="iconbtn" id="cLeave" aria-label="Leave game"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <span class="small muted" id="cRoom"></span>
+    <button class="iconbtn sndbtn" id="cSound" aria-label="Sound"></button>
+  </div>
+  <div class="cards one top" id="cTop"></div>
+  <div class="cards one bottom" id="cBottom"></div>
+  <div class="hint" id="cHint"><div class="ic" id="cHintIc"></div><div class="col"><b id="cHintT"></b><span id="cHintS"></span></div></div>
+  <div class="gbar">
+    <button class="micbtn" id="cMic" aria-label="Mic"></button>
+    <div class="col center grow">
+      <span class="turn" id="cTurn"></span>
+      <div class="tbar"><i id="cFill"></i></div>
+      <label class="helpsw">Move help <span class="switch sm"><input type="checkbox" id="cHelp"><span></span></span></label>
+    </div>
+    <button class="iconbtn round big chatbtn" id="cChat" aria-label="Chat"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><b class="badge" id="cBadge"></b></button>
+  </div>
+</section>
+
 <section id="win" class="screen">
   <div class="confetti" id="winConf"></div>
   <div class="pad col center gap14 full">
-    <svg class="trophy" viewBox="0 0 64 64"><path d="M18 8h28v14a14 14 0 0 1-28 0z" fill="#FFC21A" stroke="#8A5A00" stroke-width="2"/><path d="M18 12H9a9 9 0 0 0 9 12M46 12h9a9 9 0 0 1-9 12" fill="none" stroke="#FFC21A" stroke-width="4"/><rect x="28" y="36" width="8" height="10" fill="#E3A500"/><rect x="20" y="46" width="24" height="8" rx="2" fill="#FFC21A" stroke="#8A5A00" stroke-width="2"/></svg>
+    <svg class="trophy" id="trophy" viewBox="0 0 64 64"><path d="M18 8h28v14a14 14 0 0 1-28 0z" fill="#FFC21A" stroke="#8A5A00" stroke-width="2"/><path d="M18 12H9a9 9 0 0 0 9 12M46 12h9a9 9 0 0 1-9 12" fill="none" stroke="#FFC21A" stroke-width="4"/><rect x="28" y="36" width="8" height="10" fill="#E3A500"/><rect x="20" y="46" width="24" height="8" rx="2" fill="#FFC21A" stroke="#8A5A00" stroke-width="2"/></svg>
     <h1 class="wintitle" id="winTitle">You won!</h1>
     <p class="muted" id="winSub"></p>
     <div class="podium" id="podium"></div>
@@ -130,7 +157,7 @@
     <div class="col gap10" id="setRows"></div>
     <button class="rowbtn" id="setProfile">Edit name and look<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
     <button class="rowbtn" id="setRules">How to play<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
-    <span class="small muted center mt-auto">Ludo Dhamaal · Version <span id="ver">1.0</span></span>
+    <span class="small muted center mt-auto">Pitara · Version <span id="ver">1.0</span></span>
   </div>
 </section>
 
@@ -143,7 +170,9 @@
   </div>
 </div>
 
-<div class="netbanner" id="netBanner"><span class="spin"></span>Waiting for network...</div>
+<div class="toast" id="toast"></div>
+<div class="bubbles" id="bubbles"></div>
+<div class="netbanner" id="netBanner"><span class="spinner"></span>Waiting for network...</div>
 
 <div class="modal" id="modal"><div class="sheet" id="modalBox"></div></div>
 

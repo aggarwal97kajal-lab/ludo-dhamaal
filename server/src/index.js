@@ -1,5 +1,6 @@
-// Ludo Dhamaal online server: one Durable Object per room.
+// Pitara online server (Ludo and Chess): one Durable Object per room.
 import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf, markLeft } from '../../app/src/main/assets/www/js/rules.js';
+import { newChess, chessMove, chessTimeout, chessLeft, chessPlayer } from '../../app/src/main/assets/www/js/chessrules.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -9,7 +10,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'ludo-dhamaal' });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess'] });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/new' && req.method === 'POST') {
       for (let i = 0; i < 6; i++) {
@@ -65,6 +66,8 @@ export class Room {
     this.turnTimer = null; this.turnEnds = null;
     this.emptyTimer = null;
     this.chat = [];
+    this.game = 'ludo';
+    this.turnStart = 0;
   }
 
   async fetch(req) {
@@ -93,7 +96,7 @@ export class Room {
   wsOf(pid) { for (const [ws, p] of this.sockets) if (p === pid) return ws; return null; }
 
   lobby() {
-    this.all({ t: 'lobby', code: this.code, host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host })) });
+    this.all({ t: 'lobby', code: this.code, game: this.game, host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host })) });
   }
 
   onMsg(ws, raw) {
@@ -109,6 +112,7 @@ export class Room {
       case 'start': this.start(me); break;
       case 'roll': this.doRoll(me); break;
       case 'move': this.doMove(me, m.token); break;
+      case 'cmove': this.doChessMove(ws, me, m); break;
       case 'chat': {
         const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
         if (!text) break;
@@ -131,9 +135,12 @@ export class Room {
     let p = this.players.find(x => x.pid === pid);
     if (!p) {
       if (this.s) return this.send(ws, { t: 'err', msg: 'This game has already started.', fatal: true });
-      if (this.players.length >= 4) return this.send(ws, { t: 'err', msg: 'This room is full (4 players).', fatal: true });
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
-      p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, connected: true, mic: false };
+      // The person who creates the room picks the game. Everyone who joins plays that game.
+      if (!this.players.length) this.game = m.game === 'chess' ? 'chess' : 'ludo';
+      const max = this.game === 'chess' ? 2 : 4;
+      if (this.players.length >= max) return this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
+      p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false };
       this.players.push(p);
       if (!this.host) this.host = pid;
     } else {
@@ -145,7 +152,8 @@ export class Room {
     if (this.emptyTimer) { clearTimeout(this.emptyTimer); this.emptyTimer = null; }
     this.lobby();
     this.send(ws, { t: 'chatlog', list: this.chat });
-    if (this.s) this.send(ws, { t: 'sync', s: this.s, moves: this.s.rolled ? this.moves : [], turnEnds: this.turnEnds });
+    if (this.s && this.s.game === 'chess') this.send(ws, { t: 'sync', s: this.s, left: this.chessLeftMs() });
+    else if (this.s) this.send(ws, { t: 'sync', s: this.s, moves: this.s.rolled ? this.moves : [], turnEnds: this.turnEnds });
   }
 
   leave(ws, pid) {
@@ -155,7 +163,10 @@ export class Room {
       const p = this.players.find(x => x.pid === pid);
       if (p) { p.connected = false; p.left = true; }
       const gp = this.s.players.find(x => x.id === pid);
-      if (gp && !this.s.over) {
+      if (gp && !this.s.over && this.s.game === 'chess') {
+        chessLeft(this.s, gp.color); this.clearTurn();
+        this.all({ t: 'cend', s: this.s });
+      } else if (gp && !this.s.over) {
         const wasTurn = this.s.turn === gp.color;
         markLeft(this.s, gp.color);
         if (this.s.over) { this.clearTurn(); this.all({ t: 'passed', s: this.s, reason: 'left', turnEnds: null }); }
@@ -193,6 +204,16 @@ export class Room {
     const ready = this.players.filter(p => p.connected);
     if (ready.length < 2) return;
     this.players = ready;
+    if (this.game === 'chess') {
+      // The host plays White in the first game; sides swap in every new game.
+      this.chessRound = (this.chessRound || 0) + 1;
+      const two = ready.slice(0, 2); if (this.chessRound % 2 === 0) two.reverse();
+      this.s = newChess(two.map(p => ({ id: p.pid, name: p.name, kind: 'remote', look: p.look, tint: p.tint })));
+      this.armChess();
+      this.all({ t: 'start', s: this.s, left: this.chessLeftMs() });
+      this.lobby();
+      return;
+    }
     const cols = seatColors(ready.length);
     this.s = newGame(ready.map((p, i) => ({ id: p.pid, name: p.name, color: cols[i], kind: 'remote', look: p.look })));
     this.moves = [];
@@ -203,6 +224,30 @@ export class Room {
   }
 
   current() { return this.s ? playerOf(this.s, this.s.turn) : null; }
+
+  // ---------- Chess ----------
+  // Each side has its own clock. Only the clock of the player to move runs.
+  chessLeftMs() { const s = this.s; if (!s || s.over) return null; return Math.max(0, s.clock[s.turn] - (Date.now() - this.turnStart)); }
+  armChess() {
+    this.clearTurn();
+    const s = this.s; if (!s || s.over) return;
+    this.turnStart = Date.now();
+    const seq = s.seq, left = s.clock[s.turn];
+    this.turnEnds = this.turnStart + left;
+    this.turnTimer = setTimeout(() => {
+      if (this.s === s && s.seq === seq && !s.over) { chessTimeout(s, s.turn); this.clearTurn(); this.all({ t: 'cend', s }); }
+    }, left + 300);
+  }
+  doChessMove(ws, pid, m) {
+    const s = this.s; if (!s || s.game !== 'chess' || s.over) return;
+    const p = chessPlayer(s, s.turn);
+    if (!p || p.id !== pid) return;
+    if (m.seq != null && Number(m.seq) !== s.seq) return this.send(ws, { t: 'sync', s, left: this.chessLeftMs() });
+    const r = chessMove(s, { from: m.from, to: m.to, promotion: m.promotion }, Date.now() - this.turnStart);
+    if (!r) return this.send(ws, { t: 'sync', s, left: this.chessLeftMs() });
+    if (s.over) this.clearTurn(); else this.armChess();
+    this.all({ t: 'cmoved', mv: r, s, left: this.chessLeftMs() });
+  }
 
   clearTurn() { if (this.turnTimer) clearTimeout(this.turnTimer); this.turnTimer = null; this.turnEnds = null; }
 
@@ -225,7 +270,7 @@ export class Room {
   checkAway() {}
 
   doRoll(pid) {
-    const s = this.s; if (!s || s.over || s.rolled) return;
+    const s = this.s; if (!s || s.game === 'chess' || s.over || s.rolled) return;
     if (this.current().id !== pid) return;
     const d = rollDie();
     const r = roll(s, d);
@@ -240,7 +285,7 @@ export class Room {
   }
 
   doMove(pid, token) {
-    const s = this.s; if (!s || s.over || !s.rolled) return;
+    const s = this.s; if (!s || s.game === 'chess' || s.over || !s.rolled) return;
     if (this.current().id !== pid) return;
     const t = Number(token);
     if (!movableTokens(s, s.turn, s.dice).includes(t)) return;

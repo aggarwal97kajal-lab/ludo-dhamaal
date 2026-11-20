@@ -35,14 +35,14 @@ jobs:
       - name: Build
         run: gradle assembleRelease --no-daemon --stacktrace
       - name: Rename
-        run: cp app/build/outputs/apk/release/app-release.apk LudoDhamaal.apk
+        run: cp app/build/outputs/apk/release/app-release.apk Pitara.apk
       - uses: actions/upload-artifact@v4
-        with: { name: LudoDhamaal-apk, path: LudoDhamaal.apk }
+        with: { name: Pitara-apk, path: Pitara.apk }
       - name: Publish download
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: Ludo Dhamaal 1.0.${{ github.run_number }}
-          body: Download LudoDhamaal.apk below and install it on your phone.
-          files: LudoDhamaal.apk
+          name: Pitara 1.0.${{ github.run_number }}
+          body: Download Pitara.apk below and install it on your phone.
+          files: Pitara.apk
           make_latest: true

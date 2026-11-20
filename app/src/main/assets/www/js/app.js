@@ -4,6 +4,9 @@ import { sfx, buzz, music, prefs, unlock } from './sound.js';
 import { Net } from './net.js';
 import { Voice, loadIce } from './voice.js';
 import * as VoiceMod from './voice.js';
+import { Chess3D } from './chess3d.js';
+import { Chess } from './chesslib.js';
+import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
 
 const $ = id => document.getElementById(id);
 const UI = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0'];
@@ -20,7 +23,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('ld:' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 };
 let profile = store.get('profile', null);
-const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true }, store.get('settings', {}));
+const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true }, store.get('settings', {}));
 let pid = store.get('pid', null);
 if (!pid) { pid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); store.set('pid', pid); }
 Object.assign(prefs, { sound: settings.sound, music: settings.music, vibrate: settings.vibrate });
@@ -37,7 +40,10 @@ let current = 'splash';
 function show(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('show', s.id === id));
   current = id;
+  if (board) board.paused = id !== 'game';
+  if (cboard) cboard.paused = id !== 'chess';
   if (id === 'home') renderHome();
+  if (id === 'gamehome') renderModes();
 }
 function modal(html) { $('modalBox').innerHTML = html; $('modal').classList.add('show'); }
 function closeModal() { $('modal').classList.remove('show'); }
@@ -88,10 +94,34 @@ $('pfSave').onclick = () => {
 };
 
 // ---------- Home ----------
+// The game picked on the Pitara home screen: 'ludo' or 'chess'.
+let GAME = store.get('game', 'ludo');
 function renderHome() {
   $('homeAv').outerHTML = `<div class="av sm" id="homeAv" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
   $('homeName').textContent = profile.name;
-  const modes = [
+  $('games').innerHTML = `
+    <button class="gamecard ludo" data-game="ludo"><div class="col"><span class="t">Ludo</span><span class="s">3D Ludo with walking players. Online with friends, vs computer or pass & play.</span><span class="play">Play</span></div>
+      <div class="art">${[0, 3].map(i => body(i, i, 128)).join('')}</div></button>
+    <button class="gamecard chess" data-game="chess"><div class="col"><span class="t">Chess</span><span class="s">3D chess with move help that shows where each piece can go.</span><span class="play">Play</span></div>
+      <div class="art glyphs">&#9819;<b>&#9822;</b></div></button>
+    <div class="gamecard soon"><span class="t">More games coming soon</span></div>`;
+  music(true);
+}
+$('games').addEventListener('click', e => {
+  const b = e.target.closest('[data-game]'); if (!b) return; sfx('click');
+  GAME = b.dataset.game; store.set('game', GAME); show('gamehome');
+});
+const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
+function renderModes() {
+  const chess = GAME === 'chess';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  const g = k => `<div class="glyphs">${k}</div>`;
+  const modes = chess ? [
+    ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, g(PIECE.q + PIECE.k)],
+    ['join', 'Join a room', 'Enter your friend’s room code', 3, g(PIECE.r)],
+    ['bot', 'Play vs computer', 'Play solo against the computer', 1, g(PIECE.n)],
+    ['local', 'Pass & play', '2 players taking turns on one phone', 2, g(PIECE.b + PIECE.p)]
+  ] : [
     ['online', 'Create online room', 'Invite friends anywhere and talk on mic', 0, [0, 1]],
     ['join', 'Join a room', 'Enter your friend’s room code', 3, [3, 2]],
     ['bot', 'Play vs computer', 'Play solo against a bot', 1, [1]],
@@ -99,7 +129,7 @@ function renderHome() {
   ];
   $('modes').innerHTML = modes.map(m => `<button class="mode" data-mode="${m[0]}" style="background:${UI[m[3]]};border-color:${UI_EDGE[m[3]]};color:${UI_FG[m[3]]}">
     <div class="col grow"><span class="t">${m[1]}</span><span class="s">${m[2]}</span></div>
-    <div class="ppl">${m[4].map(i => body(i, i, 82)).join('')}</div></button>`).join('');
+    <div class="ppl">${typeof m[4] === 'string' ? m[4] : m[4].map(i => body(i, i, 82)).join('')}</div></button>`).join('');
   music(true);
 }
 $('modes').addEventListener('click', e => {
@@ -112,14 +142,16 @@ $('modes').addEventListener('click', e => {
 $('homeSettings').onclick = () => { sfx('click'); openSettings(); };
 
 // ---------- Offline setup ----------
-let setupMode = 'bot', setupN = 2;
+let setupMode = 'bot', setupN = 2, setupSide = 'w';
 function openSetup(m) {
-  setupMode = m; setupN = m === 'bot' ? 2 : 2;
+  setupMode = m; setupN = 2;
   $('setupTitle').textContent = m === 'bot' ? 'Play vs computer' : 'Pass & play';
   renderSetup(); show('setup');
 }
 function setupColors() { return seatColors(setupN).map(c => (c + profile.color) % 4); }
 function renderSetup() {
+  if (GAME === 'chess') return renderChessSetup();
+  $('setupAsk').textContent = 'How many players?';
   $('setupCount').innerHTML = [2, 3, 4].map(n => `<button class="countbtn ${n === setupN ? 'on' : ''}" data-n="${n}">${n}</button>`).join('');
   const cols = setupColors();
   $('setupNames').innerHTML = cols.map((c, i) => {
@@ -128,8 +160,12 @@ function renderSetup() {
     return `<div class="prow"><span class="dot" style="background:${UI[c]}"></span>${ed ? `<input class="input" data-pn="${i}" maxlength="14" value="${nm}">` : `<b style="font-size:18px">${esc(nm)}</b>`}</div>`;
   }).join('');
 }
-$('setupCount').addEventListener('click', e => { const b = e.target.closest('[data-n]'); if (b) { setupN = +b.dataset.n; sfx('click'); renderSetup(); } });
+$('setupCount').addEventListener('click', e => {
+  const sd = e.target.closest('[data-side]'); if (sd) { setupSide = sd.dataset.side; sfx('click'); renderSetup(); return; }
+  const b = e.target.closest('[data-n]'); if (b) { setupN = +b.dataset.n; sfx('click'); renderSetup(); }
+});
 $('setupGo').onclick = () => {
+  if (GAME === 'chess') return goChessSetup();
   const cols = setupColors();
   const others = [0, 1, 2, 3].filter(x => x !== ch(profile.look));
   const players = cols.map((c, i) => {
@@ -175,6 +211,7 @@ function setDiceFace(v) {
 
 function renderCards() {
   if (!G) return;
+  if (G.s && G.s.game === 'chess') return renderChessCards();
   const s = G.s;
   // Cards sit in the same corner as each player's home (your home is bottom-left).
   const me = s.players.find(p => p.id === pid) || s.players[0];
@@ -242,6 +279,7 @@ function armTimer() {
 }
 let lastTick = 0;
 setInterval(() => {
+  if (G && current === 'chess' && G.s) { chessTick(); return; }
   if (!G || current !== 'game' || !G.s) { $('tfill').style.width = '0'; return; }
   if (G.busy && board && !board.tweens.length && !diceSpin) { G.stuck = (G.stuck || 0) + 250; if (G.stuck > 6000) { G.busy = false; G.stuck = 0; } } else G.stuck = 0;
   refreshDice();
@@ -318,24 +356,28 @@ const SPK_ON = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path
 const SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>';
 function syncSpeaker() {
   const on = settings.sound || settings.music;
-  $('gameSound').innerHTML = on ? SPK_ON : SPK_OFF;
-  $('gameSound').setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
-  $('gameSound').classList.toggle('off', !on);
+  ['gameSound', 'cSound'].forEach(id => {
+    $(id).innerHTML = on ? SPK_ON : SPK_OFF;
+    $(id).setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
+    $(id).classList.toggle('off', !on);
+  });
 }
+$('cSound').onclick = () => $('gameSound').onclick();
 $('gameSound').onclick = () => {
   const on = !(settings.sound || settings.music);
   settings.sound = on; settings.music = on;
   Object.assign(prefs, { sound: on, music: on }); store.set('settings', settings);
-  music(on && current !== 'game'); if (on) sfx('click');
+  music(on && current !== 'game' && current !== 'chess'); if (on) sfx('click');
   syncSpeaker();
 };
 syncSpeaker();
 function leaveGame() {
   confirmBox('Leave the game?', G && G.mode === 'online' ? 'You can come back with the same room code while the game is on.' : 'This game will end.', 'Leave', 'Stay', () => {
     if (G && G.mode === 'online') endOnline();
-    G = null; show('home');
+    G = null; show('gamehome');
   });
 }
+$('cLeave').onclick = () => leaveGame();
 
 // ---------- Offline match ----------
 function startOffline(mode, players) {
@@ -390,6 +432,7 @@ function afterMove() {
 
 // ---------- Finish ----------
 function finishGame() {
+  if (G.s && G.s.game === 'chess') return finishChess();
   const s = G.s; renderCards();
   const ranks = s.ranks.slice();
   s.order.forEach(c => { if (!ranks.includes(c)) ranks.push(c); });
@@ -402,6 +445,7 @@ function finishGame() {
   const podOrder = [1, 0, 2].filter(i => i < ranks.length);
   const H = [150, 110, 80];
   $('podium').innerHTML = podOrder.map(i => { const p = P(ranks[i]); return `<div class="col center gap10"><div>${body(p.look, p.color, 120)}</div><b>${esc(p.name)}</b><div class="pod" style="height:${H[i]}px;background:${UI[p.color]};border-color:${UI_EDGE[p.color]};color:${UI_FG[p.color]}">${i + 1}</div></div>`; }).join('');
+  $('trophy').style.display = '';
   $('winRest').innerHTML = ranks.slice(3).map((c, i) => `<div class="restrow"><b style="font-size:22px;color:#C9C1F0">${i + 4}</b><b class="grow">${esc(P(c).name)}</b><span class="small muted">Better luck next time!</span></div>`).join('');
   const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
   $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
@@ -412,9 +456,295 @@ function finishGame() {
 $('winAgain').onclick = () => {
   if (!G) return show('home');
   if (G.mode === 'online') { G.net.send({ t: 'again' }); return; }
+  if (G.s && G.s.game === 'chess') return startChess(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   startOffline(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, color: p.color, kind: p.kind, look: p.look })));
 };
-$('winHome').onclick = () => { if (G && G.mode === 'online') endOnline(); G = null; show('home'); };
+$('winHome').onclick = () => { if (G && G.mode === 'online') endOnline(); G = null; show('gamehome'); };
+
+// ---------- Chess ----------
+let cboard = null;
+function ensureCBoard() {
+  if (!cboard) { cboard = new Chess3D($('cboard')); cboard.onTap = chessTap; }
+  else cboard.resize();
+  cboard.paused = false;
+  return cboard;
+}
+const SIDE = { w: 'White', b: 'Black' };
+const SIDE_DOT = { w: '#F4EFE6', b: '#2B1D55' };
+// Move help: name and how each piece moves (Hindi names in brackets).
+const HELP = {
+  p: ['Pawn (Pyada)', 'Moves 1 square forward, or 2 on its first move. Captures 1 square diagonally forward.'],
+  n: ['Knight (Ghoda)', 'Moves in an L: 2 squares straight, then 1 to the side (dhaai chaal). It can jump over pieces.'],
+  b: ['Bishop (Oont)', 'Moves any number of squares diagonally, until something is in the way.'],
+  r: ['Rook (Haathi)', 'Moves any number of squares straight: up, down, left or right.'],
+  q: ['Queen (Rani)', 'The strongest piece: any number of squares straight or diagonally.'],
+  k: ['King (Raja)', 'Moves 1 square in any direction. Keep him safe: if he can’t escape a check, the game is lost.']
+};
+const PIECE_W = { k: '&#9812;', q: '&#9813;', r: '&#9814;', b: '&#9815;', n: '&#9816;', p: '&#9817;' };
+
+function renderChessSetup() {
+  const bot = setupMode === 'bot';
+  $('setupAsk').textContent = bot ? 'Play as' : 'Who plays which side?';
+  $('setupCount').innerHTML = bot ? ['w', 'b'].map(c => `<button class="sidebtn ${setupSide === c ? 'on' : ''}" data-side="${c}"><span class="dot" style="background:${SIDE_DOT[c]}"></span>${SIDE[c]}</button>`).join('') : '';
+  const otherLook = [0, 1, 2, 3].filter(x => x !== ch(profile.look))[0];
+  const meSide = bot ? setupSide : 'w';
+  const rows = [
+    `<div class="prow"><span class="dot" style="background:${SIDE_DOT[meSide]}"></span><b style="font-size:18px">${esc(profile.name)}</b><span class="small muted">${SIDE[meSide]}</span></div>`,
+    bot ? `<div class="prow"><span class="dot" style="background:${SIDE_DOT[other(meSide)]}"></span><b style="font-size:18px">${CHAR_NAME[otherLook]} (computer)</b><span class="small muted">${SIDE[other(meSide)]}</span></div>`
+      : `<div class="prow"><span class="dot" style="background:${SIDE_DOT.b}"></span><input class="input" data-pn="1" maxlength="14" value="Player 2"><span class="small muted">Black</span></div>`
+  ];
+  $('setupNames').innerHTML = rows.join('') + (bot ? '<span class="small muted">White moves first. Each side has 10 minutes.</span>' : '<span class="small muted">The board turns around after every move. Each side has 10 minutes.</span>');
+}
+function goChessSetup() {
+  const otherLook = [0, 1, 2, 3].filter(x => x !== ch(profile.look))[0];
+  const me = { id: pid, name: profile.name, kind: 'me', look: profile.look, tint: profile.color };
+  let them;
+  if (setupMode === 'bot') them = { id: 'bot1', name: CHAR_NAME[otherLook], kind: 'bot', look: otherLook, tint: (profile.color + 2) % 4 };
+  else { const inp = document.querySelector('[data-pn="1"]'); them = { id: 'p1', name: (inp && inp.value.trim()) || 'Player 2', kind: 'me', look: otherLook, tint: (profile.color + 2) % 4 }; }
+  const players = setupMode === 'bot' && setupSide === 'b' ? [them, me] : [me, them];
+  startChess(setupMode, players);
+}
+
+function startChess(mode, players) {
+  G = { mode, game: 'chess', s: newChess(players), busy: false };
+  enterChess();
+  nextChess();
+}
+// The side shown at the bottom of the screen.
+function chessViewSide() {
+  const s = G.s;
+  if (G.mode === 'local') return s.turn;
+  const me = s.players.find(p => p.id === pid);
+  return me ? me.color : 'w';
+}
+function myChessColor() {
+  const s = G.s, p = chessPlayer(s, s.turn);
+  if (G.mode === 'online') { const me = s.players.find(x => x.id === pid); return me ? me.color : null; }
+  if (G.mode === 'local') return s.turn;
+  return p && p.kind === 'me' ? s.turn : other(s.turn);
+}
+function enterChess() {
+  show('chess');
+  const b = ensureCBoard();
+  b.setPosition(G.s.fen); b.clearMarks();
+  b.setLast(G.s.last); setChessCheck();
+  b.view(chessViewSide(), false);
+  $('cRoom').textContent = G.mode === 'online' ? 'Chess · Room ' + G.code : (G.mode === 'bot' ? 'Chess · Vs computer' : 'Chess · Pass & play');
+  $('cMic').classList.toggle('hide', G.mode !== 'online');
+  $('cChat').style.visibility = G.mode === 'online' ? 'visible' : 'hidden';
+  $('cHelp').checked = settings.chessHelp;
+  G.sel = null; hideHint();
+  setBadges(); syncMicButtons(); renderChessCards(); chessTick();
+  music(false);
+}
+function setChessCheck() {
+  if (!cboard) return;
+  if (!G.s.check) { cboard.setCheck(null); return; }
+  const g = new Chess(G.s.fen), t = G.s.turn;
+  let sq = null;
+  'abcdefgh'.split('').forEach(f => { for (let r = 1; r <= 8; r++) { const p = g.get(f + r); if (p && p.type === 'k' && p.color === t) sq = f + r; } });
+  cboard.setCheck(sq);
+}
+const fmtClock = ms => { const t = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+function clockOf(c) {
+  const s = G.s;
+  if (s.turn === c && !s.over && G.turnEnds) return Math.max(0, G.turnEnds - Date.now());
+  return s.clock[c];
+}
+function renderChessCards() {
+  if (!G || !G.s || current !== 'chess') return;
+  const s = G.s, bottom = chessViewSide(), top = other(bottom);
+  const card = c => {
+    const p = chessPlayer(s, c); if (!p) return '';
+    const lp = G.mode === 'online' ? G.lobby.find(x => x.pid === p.id) : null;
+    const speaking = G.speaking && G.speaking.has(p.id);
+    let st = SIDE[c];
+    if (p.kind === 'bot') st += ' · Computer';
+    if (lp && lp.left) st = 'Offline';
+    else if (lp && !lp.connected) st = 'Waiting for network...';
+    else if (speaking) st = 'Speaking...';
+    else if (s.turn === c && !s.over && s.check) st = SIDE[c] + ' · Check!';
+    else if (s.turn === c && !s.over && p.kind === 'bot') st = 'Thinking...';
+    const ms = clockOf(c);
+    const micOn = lp ? lp.mic : false;
+    const tint = p.tint != null ? p.tint : (c === 'w' ? 2 : 3);
+    return `<div data-pid="${p.id}" class="gcard ${s.turn === c && !s.over ? 'turn' : ''} ${lp && (!lp.connected || lp.left) ? 'away' : ''}">
+      ${avatar(p.look, tint, speaking ? 'speak' : '')}
+      <div class="info"><span class="nm">${esc(p.name)}${p.id === pid && G.mode !== 'local' ? ' (You)' : ''}</span><span class="st"><span class="side" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${SIDE_DOT[c]};border:1.5px solid #fff;margin-right:4px"></span>${st}</span></div>
+      <span class="clk ${ms < 30000 ? 'low' : ''}" data-clk="${c}">${fmtClock(ms)}</span>
+      ${G.mode === 'online' && p.id !== pid ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
+    </div>`;
+  };
+  $('cTop').innerHTML = card(top);
+  $('cBottom').innerHTML = card(bottom);
+}
+['cTop', 'cBottom'].forEach(id => $(id).addEventListener('click', e => {
+  const b = e.target.closest('[data-deaf]'); if (!b || !G || !G.voice) return;
+  const off = G.voice.toggleDeafen(b.dataset.deaf); toast(off ? 'Muted for you' : 'Unmuted', '#3A2490'); renderCards();
+}));
+function chessTurnLabel() {
+  const s = G.s; if (s.over) return 'Game over';
+  if (G.note && G.note.until > Date.now()) return G.note.text;
+  const p = chessPlayer(s, s.turn);
+  if (G.mode === 'local') return `${p.name}’s turn (${SIDE[s.turn]})`;
+  if (canTouchChess() || (G.mode !== 'online' && p.kind === 'me') || (G.mode === 'online' && p.id === pid)) return s.check ? 'Check! Your turn' : 'Your turn';
+  return p.kind === 'bot' ? `${p.name} is thinking...` : `${p.name}’s turn`;
+}
+let lastChessTick = 0;
+function chessTick() {
+  if (!G || !G.s) return;
+  const s = G.s;
+  $('cTurn').textContent = chessTurnLabel();
+  document.querySelectorAll('[data-clk]').forEach(el => { const ms = clockOf(el.dataset.clk); el.textContent = fmtClock(ms); el.classList.toggle('low', ms < 30000); });
+  const left = s.over || !G.turnEnds ? null : G.turnEnds - Date.now();
+  const fill = $('cFill');
+  if (left == null) fill.style.width = '0';
+  else {
+    fill.style.width = Math.max(0, Math.min(100, left / CLOCK_MS * 100)) + '%';
+    fill.classList.toggle('low', left < 30000);
+    const sec = Math.ceil(left / 1000), mine = G.mode === 'online' ? chessPlayer(s, s.turn).id === pid : chessPlayer(s, s.turn).kind === 'me';
+    if (mine && sec <= 10 && sec > 0 && sec !== lastChessTick) { lastChessTick = sec; sfx('tick'); }
+  }
+  if (G.mode !== 'online' && !s.over && left != null && left <= 0 && !G.busy) {
+    chessTimeout(s, s.turn); G.turnEnds = null; cboard.clearMarks(); hideHint();
+    note('Time up!'); buzz([80]); renderChessCards(); setTimeout(finishChess, 900);
+  }
+}
+function canTouchChess() {
+  if (!G || !G.s || G.busy || G.s.over) return false;
+  const p = chessPlayer(G.s, G.s.turn);
+  if (G.mode === 'online') return p.id === pid && !(G.sent && Date.now() - G.sent < 4000);
+  return p.kind === 'me';
+}
+function nextChess() {
+  if (!G || G.mode === 'online') return;
+  const s = G.s;
+  renderChessCards();
+  if (s.over) { setTimeout(finishChess, 1000); return; }
+  G.turnStart = Date.now(); G.turnEnds = Date.now() + s.clock[s.turn];
+  const p = chessPlayer(s, s.turn);
+  if (G.mode === 'local' && s.moves > 0) cboard.view(s.turn, true);
+  if (p.kind === 'bot') {
+    G.busy = true; renderChessCards();
+    setTimeout(() => {
+      if (!G || G.s !== s) return;
+      const t0 = Date.now(), mv = chessBot(s.fen);
+      setTimeout(() => { if (G && G.s === s && mv) playChess(mv); }, Math.max(0, 700 - (Date.now() - t0)));
+    }, 60);
+  } else if (s.check) sfx('turn');
+  chessTick();
+}
+function showHint(type) {
+  const h = HELP[type];
+  $('cHintIc').innerHTML = PIECE_W[type]; $('cHintT').textContent = h[0]; $('cHintS').textContent = h[1];
+  $('cHint').classList.add('show');
+}
+function hideHint() { $('cHint').classList.remove('show'); }
+$('cHint').addEventListener('click', hideHint);
+function chessTap(sq) {
+  if (!canTouchChess()) return;
+  const s = G.s, g = new Chess(s.fen), pc = g.get(sq);
+  if (pc && pc.color === s.turn) {
+    sfx('click'); G.sel = sq;
+    // Help (dots and the piece card) shows only on the phone of the player whose turn it is.
+    const moves = g.moves({ square: sq, verbose: true });
+    if (settings.chessHelp) { cboard.select(sq, moves); showHint(pc.type); if (!moves.length) note('This piece can’t move now'); }
+    else { cboard.select(sq, null); hideHint(); }
+    return;
+  }
+  if (!G.sel) return;
+  const opts = g.moves({ square: G.sel, verbose: true }).filter(m => m.to === sq);
+  if (!opts.length) {
+    if (pc || settings.chessHelp) { note('Can’t move there'); buzz([30]); }
+    G.sel = null; cboard.clearMarks(); hideHint(); return;
+  }
+  const from = G.sel; G.sel = null; hideHint();
+  if (opts.length > 1 || opts[0].flags.includes('p')) askPromotion(s.turn, p => sendChessMove({ from, to: sq, promotion: p }));
+  else sendChessMove({ from, to: sq });
+}
+function askPromotion(color, done) {
+  const set = color === 'w' ? PIECE_W : PIECE;
+  modal(`<h3>Your pawn reached the end!</h3><p>Pick what it becomes:</p><div class="promo">${['q', 'r', 'b', 'n'].map(k => `<button data-pr="${k}">${set[k]}<small>${HELP[k][0].split(' ')[0]}</small></button>`).join('')}</div>`);
+  $('modalBox').querySelectorAll('[data-pr]').forEach(b => b.onclick = () => { closeModal(); done(b.dataset.pr); });
+}
+function sendChessMove(mv) {
+  cboard.clearMarks();
+  if (G.mode === 'online') { G.sent = Date.now(); G.net.send({ t: 'cmove', from: mv.from, to: mv.to, promotion: mv.promotion || 'q', seq: G.s.seq }); return; }
+  playChess(mv);
+}
+async function playChess(mv) {
+  const s = G.s;
+  G.busy = true;
+  const spent = Date.now() - (G.turnStart || Date.now());
+  const r = chessMove(s, mv, spent);
+  if (!r) { G.busy = false; return; }
+  G.turnEnds = null;
+  await cboard.animate(r, s.fen, sfx);
+  if (!G || G.s !== s) return;
+  afterChessMove(r);
+  G.busy = false;
+  nextChess();
+}
+function afterChessMove(r) {
+  const s = G.s;
+  cboard.setLast(s.last); setChessCheck();
+  const P = chessPlayer(s, r.color);
+  if (r.captured) buzz([40, 30, 60]);
+  if (s.over && s.reason === 'checkmate') { toast('Checkmate!', '#E0103A'); sfx('win'); }
+  else if (s.check) { toast('Check!', '#E0103A'); buzz([60, 40, 60]); }
+  else if (r.flags.includes('p')) toast(`${P.name}’s pawn became a ${HELP[r.promotion][0].split(' ')[0]}!`, '#3A2490');
+  renderChessCards();
+}
+// Online chess
+function onChessState(m) {
+  G.s = m.s; G.busy = false; G.sent = 0;
+  G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  G.turnEnds = m.left != null && !m.s.over ? Date.now() + m.left : null;
+  if (m.s.over && m.t === 'sync') { finishChess(); return; }
+  enterChess();
+  if (m.t === 'start') sfx('turn');
+}
+async function onChessMoved(m) {
+  G.busy = true; hideHint(); G.sel = null;
+  const s = m.s; s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  if (current === 'chess') await cboard.animate(m.mv, s.fen, sfx);
+  G.s = s; G.sent = 0;
+  G.turnEnds = m.left != null && !s.over ? Date.now() + m.left : null;
+  if (current === 'chess') afterChessMove(m.mv);
+  G.busy = false;
+  if (s.over) setTimeout(finishChess, 1100);
+  else if (chessPlayer(s, s.turn).id === pid) sfx('turn');
+}
+function onChessEnd(m) {
+  G.s = m.s; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  G.turnEnds = null; if (cboard) cboard.clearMarks(); hideHint();
+  if (m.s.reason === 'time') note('Time up!');
+  if (m.s.reason === 'left') note('Player left the game');
+  renderChessCards(); setTimeout(finishChess, 900);
+}
+function finishChess() {
+  if (!G || !G.s) return;
+  const s = G.s;
+  const meColor = G.mode === 'online' ? (s.players.find(p => p.id === pid) || {}).color : (G.mode === 'bot' ? (s.players.find(p => p.kind === 'me') || {}).color : null);
+  const res = chessResultText(s, meColor);
+  $('winTitle').textContent = res.title;
+  $('winSub').textContent = res.sub;
+  const W = s.winner ? [chessPlayer(s, s.winner)] : s.players;
+  $('podium').innerHTML = W.map(p => { const tint = p.tint != null ? p.tint : (p.color === 'w' ? 2 : 3); return `<div class="col center gap10"><div>${body(p.look, tint, 150)}</div><b>${esc(p.name)}</b><span class="small muted">${SIDE[p.color]}</span></div>`; }).join('');
+  $('winRest').innerHTML = '';
+  $('trophy').style.display = s.winner ? '' : 'none';
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = s.winner ? Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('') : '';
+  $('winAgain').style.display = G.mode === 'online' ? (G.host ? 'flex' : 'none') : 'flex';
+  if (meColor && s.winner && s.winner !== meColor) sfx('capture'); else sfx('win');
+  buzz([60, 40, 60, 40, 120]);
+  show('win');
+}
+$('cHelp').addEventListener('change', e => {
+  settings.chessHelp = e.target.checked; store.set('settings', settings); sfx('click');
+  if (G && G.sel && cboard) { const g = new Chess(G.s.fen), pc = g.get(G.sel); if (settings.chessHelp && pc) { cboard.select(G.sel, g.moves({ square: G.sel, verbose: true })); showHint(pc.type); } else { cboard.select(G.sel, null); hideHint(); } }
+  toast(settings.chessHelp ? 'Move help on' : 'Move help off', '#3A2490');
+});
 
 // ---------- Online ----------
 function netReady() {
@@ -438,7 +768,7 @@ $('joinCode').addEventListener('input', () => { $('joinErr').textContent = ''; }
 
 function openRoom(code) {
   if (G && G.net) endOnline();
-  G = { mode: 'online', code, lobby: [], host: false, s: null, busy: false, speaking: new Set(), q: Promise.resolve(), chat: [], unread: 0 };
+  G = { mode: 'online', game: GAME, code, lobby: [], host: false, s: null, busy: false, speaking: new Set(), q: Promise.resolve(), chat: [], unread: 0 };
   setBadges();
   G.net = new Net({
     message: m => {
@@ -454,8 +784,8 @@ function openRoom(code) {
   });
   G.voice = new Voice((to, data) => G && G.net && G.net.send({ t: 'rtc', to, data }), (who, on) => { if (!G) return; if (on) G.speaking.add(who); else G.speaking.delete(who); if (current === 'lobby') renderLobby(); else renderCards(); });
   G.voice.setListen(settings.listen);
-  G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (current === 'game') renderCards(); };
-  G.net.join(code, { pid, name: profile.name, look: profile.look });
+  G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (current === 'game' || current === 'chess') renderCards(); };
+  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME });
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
   loadIce(Net.serverBase()).then(() => G && G.voice ? G.voice.start(pid, settings.automic) : false).then(ok => {
@@ -483,9 +813,9 @@ function endOnline() {
 function syncMicButtons() {
   if (!G || !G.voice) return;
   const on = G.voice.hasMic() && !G.voice.muted;
-  ['lobbyMic', 'gameMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
+  ['lobbyMic', 'gameMic', 'cMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
 }
-['lobbyMic', 'gameMic'].forEach(id => $(id).onclick = async () => {
+['lobbyMic', 'gameMic', 'cMic'].forEach(id => $(id).onclick = async () => {
   if (!G || !G.voice) return;
   if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
   else G.voice.setMuted(!G.voice.muted);
@@ -496,8 +826,9 @@ function syncMicButtons() {
 
 function renderLobby() {
   if (!G) return;
-  const L = G.lobby;
-  $('lobbyCount').textContent = `Players (${L.length}/4)`;
+  const L = G.lobby, max = G.game === 'chess' ? 2 : 4;
+  $('lobbyTitle').textContent = G.game === 'chess' ? 'Chess room' : 'Ludo room';
+  $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
   const rows = L.map((p, i) => {
     const c = L.length >= 2 ? cols[i] : i;
@@ -509,17 +840,17 @@ function renderLobby() {
       <span class="mic ${p.mic ? 'on' : ''}">${p.mic ? MIC : MIC_OFF}</span></div>`;
   });
   $('voiceInfo').textContent = !G.voice.hasMic() ? 'Your mic is not allowed. Others can\u2019t hear you.' : (VoiceMod.RELAY ? 'Voice relay: on' : 'Voice relay: off (voice may fail on mobile data)');
-  for (let i = L.length; i < 4; i++) rows.push(`<div class="pcard"><div class="av" style="background:#2E1A75;border-color:#3A2490"></div><div class="col grow"><span class="nm">Empty slot</span><span class="st">Waiting for a friend...</span></div></div>`);
+  for (let i = L.length; i < max; i++) rows.push(`<div class="pcard"><div class="av" style="background:#2E1A75;border-color:#3A2490"></div><div class="col grow"><span class="nm">Empty slot</span><span class="st">Waiting for a friend...</span></div></div>`);
   $('lobbyPlayers').innerHTML = rows.join('');
   const btn = $('lobbyStart');
   if (G.host) { btn.textContent = 'Start game'; btn.disabled = L.filter(p => p.connected).length < 2; }
   else { btn.textContent = 'Waiting for host...'; btn.disabled = true; }
 }
 $('lobbyStart').onclick = () => { if (G && G.host) { sfx('click'); G.net.send({ t: 'start' }); } };
-$('lobbyBack').onclick = () => confirmBox('Leave the room?', 'You will leave this room.', 'Leave', 'Stay', () => { endOnline(); G = null; show('home'); });
+$('lobbyBack').onclick = () => confirmBox('Leave the room?', 'You will leave this room.', 'Leave', 'Stay', () => { endOnline(); G = null; show('gamehome'); });
 $('lobbyShare').onclick = () => {
   if (!G) return;
-  const text = `Let's play Ludo Dhamaal! Open the app, tap "Join a room" and enter code: ${G.code}`;
+  const text = `Let's play ${G.game === 'chess' ? 'Chess' : 'Ludo'} on Pitara! Open the app, tap "Join a room" and enter code: ${G.code}`;
   if (window.LDNative && window.LDNative.shareWhatsApp) window.LDNative.shareWhatsApp(text);
   else window.location.href = 'https://wa.me/?text=' + encodeURIComponent(text);
 };
@@ -537,6 +868,7 @@ async function onNet(m) {
       const wasHost = G.host;
       const before = {}; (G.lobby || []).forEach(p => { before[p.pid] = p.connected; });
       G.lobby = m.players; G.host = m.host === pid;
+      if (m.game && m.game !== G.game) { G.game = m.game; GAME = m.game; store.set('game', GAME); }
       const live = m.players.filter(p => p.connected && !p.left).map(p => p.pid);
       if (G.wasOffline) { G.wasOffline = false; G.voice.restart(live); }
       else m.players.forEach(p => { if (p.pid !== pid && p.connected && before[p.pid] === false) G.voice.restart([p.pid]); });
@@ -545,15 +877,16 @@ async function onNet(m) {
       if (current === 'win') $('winAgain').style.display = G.host ? 'flex' : 'none';
       G.voice.sync(live);
       if (current === 'lobby') renderLobby();
-      if (current === 'game') renderCards();
+      if (current === 'game' || current === 'chess') renderCards();
       break;
     }
     case 'err':
       modal(`<h3>Oops</h3><p>${esc(m.msg)}</p><button class="btn gold" id="mOk">OK</button>`);
-      $('mOk').onclick = () => { closeModal(); if (m.fatal) { endOnline(); G = null; show('home'); } };
+      $('mOk').onclick = () => { closeModal(); if (m.fatal) { endOnline(); G = null; show('gamehome'); } };
       break;
     case 'start':
     case 'sync':
+      if (m.s && m.s.game === 'chess') { onChessState(m); break; }
       G.s = m.s; G.turnEnds = m.turnEnds || null; G.busy = false;
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
@@ -598,6 +931,8 @@ async function onNet(m) {
       if (G.s.over) { setTimeout(finishGame, 600); break; }
       if (playerOf(G.s, G.s.turn).id === pid) sfx('turn');
       break;
+    case 'cmoved': await onChessMoved(m); break;
+    case 'cend': onChessEnd(m); break;
     case 'chat': onChat(m); break;
     case 'chatlog': G.chat = m.list || []; if ($('chat').classList.contains('show')) renderChat(); break;
     case 'rtc': await G.voice.signal(m.from, m.data); break;
@@ -628,6 +963,7 @@ function openChat() {
 function closeChat() { $('chat').classList.remove('show'); $('chatInput').blur(); }
 $('emojiBtn').onclick = () => { sfx('click'); openChat(); };
 $('lobbyChat').onclick = () => { sfx('click'); openChat(); };
+$('cChat').onclick = () => { sfx('click'); openChat(); };
 $('chatClose').onclick = closeChat;
 $('chat').addEventListener('click', e => { if (e.target.id === 'chat') closeChat(); });
 $('chatQuick').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (b) sendChat(b.dataset.q); });
@@ -647,18 +983,18 @@ function colorOf(id) {
 }
 function setBadges() {
   const n = (G && G.unread) || 0;
-  ['chatBadge', 'lobbyBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
+  ['chatBadge', 'lobbyBadge', 'cBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
 }
 function onChat(m) {
   G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();
   if ($('chat').classList.contains('show')) renderChat();
   else if (m.from !== pid) { G.unread = (G.unread || 0) + 1; setBadges(); sfx('pop'); }
-  if (current === 'game') sayBubble(m);
+  if (current === 'game' || current === 'chess') sayBubble(m);
 }
 function sayBubble(m) {
   const card = document.querySelector(`.gcard[data-pid="${m.from}"]`);
   if (!card) return;
-  const r = card.getBoundingClientRect(), g = $('game').getBoundingClientRect();
+  const r = card.getBoundingClientRect(), g = { left: 0, top: 0, width: innerWidth, height: innerHeight };
   const el = document.createElement('div'); el.className = 'saybub' + (isBig(m.text) ? ' big' : ''); el.textContent = m.text;
   el.style.left = Math.max(8, Math.min(g.width - 180, r.left - g.left + 46)) + 'px';
   const below = r.top - g.top < g.height / 2;
@@ -691,7 +1027,7 @@ $('setRows').addEventListener('change', e => {
 $('setBack').onclick = () => show('home');
 $('setProfile').onclick = () => openProfile();
 $('setRules').onclick = () => {
-  modal(`<h3>How to play</h3><ul>
+  modal(`<h3>How to play Ludo</h3><ul>
   <li>Roll a 6 to bring a player out of home.</li>
   <li>Land on another player to send them back home. They need a 6 to come out again.</li>
   <li>Star squares and start squares are safe. No one can be captured there.</li>
@@ -699,6 +1035,12 @@ $('setRules').onclick = () => {
   <li>Three 6s in a row and your turn is lost.</li>
   <li>You need the exact number to reach the centre.</li>
   <li>Get all 4 of your players to the centre to win.</li></ul>
+  <h3>How to play Chess</h3><ul>
+  <li>White moves first, then you take turns.</li>
+  <li>Tap a piece to pick it. With Move help on, green dots show where it can go and red rings show what it can capture.</li>
+  <li>Checkmate the other King (Raja) to win: he is attacked and can't escape.</li>
+  <li>Each player has 10 minutes for the whole game. If your time runs out, you lose.</li>
+  <li>A pawn (Pyada) that reaches the far side becomes a Queen, Rook, Bishop or Knight.</li></ul>
   <button class="btn gold" id="mOk">Got it</button>`);
   $('mOk').onclick = closeModal;
 };
@@ -707,14 +1049,16 @@ $('setRules').onclick = () => {
 window.ldBack = () => {
   if ($('modal').classList.contains('show')) { closeModal(); return true; }
   if ($('chat').classList.contains('show')) { closeChat(); return true; }
-  if (current === 'game') { leaveGame(); return true; }
+  if ($('cHint').classList.contains('show')) { hideHint(); if (cboard) cboard.clearMarks(); if (G) G.sel = null; return true; }
+  if (current === 'game' || current === 'chess') { leaveGame(); return true; }
   if (current === 'lobby') { $('lobbyBack').onclick(); return true; }
   if (current === 'win') { $('winHome').onclick(); return true; }
   if (current === 'profile' && !profile) return false;
+  if (current === 'setup' || current === 'join') { show('gamehome'); return true; }
   if (current !== 'home' && current !== 'splash') { show('home'); return true; }
   return false;
 };
-document.addEventListener('visibilitychange', () => music(!document.hidden && current !== 'game'));
+document.addEventListener('visibilitychange', () => music(!document.hidden && current !== 'game' && current !== 'chess'));
 
-window.__ld = () => G; window.__board = () => board;
+window.__ld = () => G; window.__board = () => board; window.__cboard = () => cboard;
 splash();
