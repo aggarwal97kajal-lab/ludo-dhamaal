@@ -21,7 +21,7 @@ export const LOOKS = [
 
 const ease = k => 1 - Math.pow(1 - k, 3);
 const PS = 1.0; // size of the people on the board
-const CHAR = ['red', 'green', 'yellow', 'blue']; // picture for each team
+// Pictures: img/c<character>-<team colour>.png (every character exists in all 4 team colours)
 
 export class Board3D {
   constructor(canvas) {
@@ -187,11 +187,13 @@ export class Board3D {
   // ---------- People (cartoon character pictures standing on the board) ----------
   charTex(color) {
     this.texCache = this.texCache || {};
-    if (!this.texCache[color]) {
-      const t = new T.TextureLoader().load('img/' + CHAR[color] + '.png', tex => { this.texAspect[color] = tex.image.width / tex.image.height; this.people[color].forEach(p => p.userData.fit()); });
-      t.anisotropy = 4; this.texCache[color] = t;
-    }
-    return this.texCache[color];
+    const ch = (this.looks && this.looks[color] != null ? this.looks[color] : color) % 4;
+    const key = ch + '-' + color;
+    if (!this.texCache[key]) {
+      const t = new T.TextureLoader().load('img/c' + key + '.png', tex => { this.texAspect[color] = tex.image.width / tex.image.height; this.people[color].forEach(p => p.userData.fit()); });
+      t.anisotropy = 4; this.texCache[key] = t;
+    } else if (this.texCache[key].image) this.texAspect[color] = this.texCache[key].image.width / this.texCache[key].image.height;
+    return this.texCache[key];
   }
 
   person(color) {
@@ -216,6 +218,7 @@ export class Board3D {
     this.people.flat().forEach(p => this.S.remove(p));
     this.people = [[], [], [], []];
     this.inPlay = colors;
+    this.looks = looks || {};
     colors.forEach(c => {
       for (let i = 0; i < 4; i++) {
         const p = this.person(c);

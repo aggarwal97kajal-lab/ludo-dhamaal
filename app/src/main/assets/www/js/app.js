@@ -24,11 +24,12 @@ let pid = store.get('pid', null);
 if (!pid) { pid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); store.set('pid', pid); }
 Object.assign(prefs, { sound: settings.sound, music: settings.music, vibrate: settings.vibrate });
 
-const CHAR = ['red', 'green', 'yellow', 'blue'];
+// Any character can play in any team colour: img/c<character>-<colour>.png
 const CHAR_NAME = ['Riya', 'Arjun', 'Dadaji', 'Chotu'];
-const face = c => `img/${CHAR[c]}-face.png`;
-const body = (c, h) => `<img class="body" src="img/${CHAR[c]}.png" alt="" style="height:${h}px">`;
-const avatar = (look, color, cls) => `<div class="av ${cls || ''}" style="border-color:${UI_EDGE[color]};background:${UI[color]}"><img src="${face(color)}" alt=""></div>`;
+const ch = look => ((Number(look) || 0) % 4 + 4) % 4;
+const face = (look, c) => `img/c${ch(look)}-${c}-face.png`;
+const body = (look, c, h) => `<img class="body" src="img/c${ch(look)}-${c}.png" alt="" style="height:${h}px">`;
+const avatar = (look, color, cls) => `<div class="av ${cls || ''}" style="border-color:${UI_EDGE[color]};background:${UI[color]}"><img src="${face(look, color)}" alt=""></div>`;
 
 // ---------- Screens ----------
 let current = 'splash';
@@ -51,7 +52,7 @@ function confirmBox(title, text, yes, no, onYes) {
 
 // ---------- Splash ----------
 function splash() {
-  $('splashCrowd').innerHTML = [0, 1, 2, 3].map(i => body(i, 110)).join('');
+  $('splashCrowd').innerHTML = [0, 1, 2, 3].map(i => body(i, i, 110)).join('');
   let p = 0;
   const t = setInterval(() => {
     p = Math.min(100, p + 9 + Math.random() * 14);
@@ -64,17 +65,19 @@ function splash() {
 // ---------- Profile ----------
 let pfLook = 0, pfColor = 0;
 function openProfile() {
-  pfLook = profile ? profile.look : 0; pfColor = profile ? profile.color : 0;
+  pfLook = profile ? ch(profile.look) : 0; pfColor = profile ? profile.color : 0;
   $('pfName').value = profile ? profile.name : '';
   $('pfErr').textContent = '';
   renderProfile(); show('profile');
 }
 function renderProfile() {
-  $('pfPreview').innerHTML = `<img src="${face(pfColor)}" alt="">`;
+  $('pfPreview').innerHTML = `<img src="${face(pfLook, pfColor)}" alt="">`;
   $('pfPreview').style.background = UI[pfColor];
-  $('pfLooks').innerHTML = [0, 1, 2, 3].map(i => `<button class="charbtn ${i === pfColor ? 'on' : ''}" data-c="${i}" style="background:${UI[i]}" aria-label="${CHAR_NAME[i]}">${body(i, 118)}<span>${CHAR_NAME[i]}</span></button>`).join('');
+  $('pfLooks').innerHTML = [0, 1, 2, 3].map(i => `<button class="charbtn ${i === pfLook ? 'on' : ''}" data-l="${i}" style="background:${UI[pfColor]}" aria-label="${CHAR_NAME[i]}">${body(i, pfColor, 118)}<span>${CHAR_NAME[i]}</span></button>`).join('');
+  $('pfColors').innerHTML = UI.map((c, i) => `<button class="colbtn ${i === pfColor ? 'on' : ''}" data-c="${i}" style="background:${c}" aria-label="${CNAME[i]} colour"></button>`).join('');
 }
-$('pfLooks').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) { pfColor = +b.dataset.c; pfLook = pfColor; sfx('click'); renderProfile(); } });
+$('pfLooks').addEventListener('click', e => { const b = e.target.closest('[data-l]'); if (b) { pfLook = +b.dataset.l; sfx('click'); renderProfile(); } });
+$('pfColors').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) { pfColor = +b.dataset.c; sfx('click'); renderProfile(); } });
 $('pfName').addEventListener('input', () => { $('pfErr').textContent = ''; });
 $('pfSave').onclick = () => {
   const name = $('pfName').value.trim().replace(/\s+/g, ' ');
@@ -85,7 +88,7 @@ $('pfSave').onclick = () => {
 
 // ---------- Home ----------
 function renderHome() {
-  $('homeAv').outerHTML = `<div class="av sm" id="homeAv" style="background:${UI[profile.color]}"><img src="${face(profile.color)}" alt=""></div>`;
+  $('homeAv').outerHTML = `<div class="av sm" id="homeAv" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
   $('homeName').textContent = profile.name;
   const modes = [
     ['online', 'Create online room', 'Invite friends anywhere and talk on mic', 0, [0, 1]],
@@ -95,7 +98,7 @@ function renderHome() {
   ];
   $('modes').innerHTML = modes.map(m => `<button class="mode" data-mode="${m[0]}" style="background:${UI[m[3]]};border-color:${UI_EDGE[m[3]]};color:${UI_FG[m[3]]}">
     <div class="col grow"><span class="t">${m[1]}</span><span class="s">${m[2]}</span></div>
-    <div class="ppl">${m[4].map(i => body(i, 82)).join('')}</div></button>`).join('');
+    <div class="ppl">${m[4].map(i => body(i, i, 82)).join('')}</div></button>`).join('');
   music(true);
 }
 $('modes').addEventListener('click', e => {
@@ -119,7 +122,7 @@ function renderSetup() {
   $('setupCount').innerHTML = [2, 3, 4].map(n => `<button class="countbtn ${n === setupN ? 'on' : ''}" data-n="${n}">${n}</button>`).join('');
   const cols = setupColors();
   $('setupNames').innerHTML = cols.map((c, i) => {
-    const nm = i === 0 ? profile.name : (setupMode === 'bot' ? 'Bot ' + BOT_NAMES[i - 1] : 'Player ' + (i + 1));
+    const nm = i === 0 ? profile.name : (setupMode === 'bot' ? CHAR_NAME[[0, 1, 2, 3].filter(x => x !== ch(profile.look))[i - 1]] : 'Player ' + (i + 1));
     const ed = setupMode === 'local' && i > 0;
     return `<div class="prow"><span class="dot" style="background:${UI[c]}"></span>${ed ? `<input class="input" data-pn="${i}" maxlength="14" value="${nm}">` : `<b style="font-size:18px">${esc(nm)}</b>`}</div>`;
   }).join('');
@@ -127,11 +130,12 @@ function renderSetup() {
 $('setupCount').addEventListener('click', e => { const b = e.target.closest('[data-n]'); if (b) { setupN = +b.dataset.n; sfx('click'); renderSetup(); } });
 $('setupGo').onclick = () => {
   const cols = setupColors();
+  const others = [0, 1, 2, 3].filter(x => x !== ch(profile.look));
   const players = cols.map((c, i) => {
     if (i === 0) return { id: pid, name: profile.name, color: c, kind: 'me', look: profile.look };
-    if (setupMode === 'bot') return { id: 'bot' + i, name: 'Bot ' + BOT_NAMES[i - 1], color: c, kind: 'bot', look: [2, 1, 3][i - 1] };
+    if (setupMode === 'bot') return { id: 'bot' + i, name: CHAR_NAME[others[i - 1]], color: c, kind: 'bot', look: others[i - 1] };
     const inp = document.querySelector(`[data-pn="${i}"]`);
-    return { id: 'p' + i, name: (inp && inp.value.trim()) || 'Player ' + (i + 1), color: c, kind: 'me', look: [3, 1, 4][i - 1] };
+    return { id: 'p' + i, name: (inp && inp.value.trim()) || 'Player ' + (i + 1), color: c, kind: 'me', look: others[i - 1] };
   });
   startOffline(setupMode, players);
 };
@@ -176,7 +180,7 @@ function renderCards() {
     const micOn = lp ? lp.mic : false;
     const away = lp && !lp.connected;
     return `<div data-pid="${p.id}" class="gcard ${s.turn === p.color && !s.over ? 'turn' : ''} ${away ? 'away' : ''}" style="${s.turn === p.color ? '' : ''}">
-      ${avatar(0, p.color, speaking ? 'speak' : '')}
+      ${avatar(p.look, p.color, speaking ? 'speak' : '')}
       <div class="info"><span class="nm">${esc(p.name)}${p.id === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       ${G.mode === 'online' ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
     </div>`;
@@ -233,7 +237,7 @@ function enterGame(mode) {
   show('game');
   const b = ensureBoard();
   const s = G.s;
-  const looks = {};
+  const looks = {}; s.players.forEach(p => { looks[p.color] = ch(p.look); });
   b.setPlayers(s.order.slice(), looks);
   b.placeAll(s.tokens);
   const me = s.players.find(p => p.id === pid) || s.players[0];
@@ -337,7 +341,7 @@ function finishGame() {
   $('winSub').textContent = iWon ? 'All 4 of your players made it home' : 'Good game! Try again?';
   const podOrder = [1, 0, 2].filter(i => i < ranks.length);
   const H = [150, 110, 80];
-  $('podium').innerHTML = podOrder.map(i => { const p = P(ranks[i]); return `<div class="col center gap10"><div>${body(p.color, 120)}</div><b>${esc(p.name)}</b><div class="pod" style="height:${H[i]}px;background:${UI[p.color]};border-color:${UI_EDGE[p.color]};color:${UI_FG[p.color]}">${i + 1}</div></div>`; }).join('');
+  $('podium').innerHTML = podOrder.map(i => { const p = P(ranks[i]); return `<div class="col center gap10"><div>${body(p.look, p.color, 120)}</div><b>${esc(p.name)}</b><div class="pod" style="height:${H[i]}px;background:${UI[p.color]};border-color:${UI_EDGE[p.color]};color:${UI_FG[p.color]}">${i + 1}</div></div>`; }).join('');
   $('winRest').innerHTML = ranks.slice(3).map((c, i) => `<div class="restrow"><b style="font-size:22px;color:#C9C1F0">${i + 4}</b><b class="grow">${esc(P(c).name)}</b><span class="small muted">Better luck next time!</span></div>`).join('');
   const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
   $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
@@ -425,7 +429,7 @@ function renderLobby() {
     const c = L.length >= 2 ? cols[i] : i;
     const sp = G.speaking.has(p.pid);
     const st = !p.connected ? 'Offline' : sp ? 'Speaking...' : p.host ? 'Host' : 'Ready';
-    return `<div class="pcard" style="border-color:${p.pid === pid ? UI[c] : ''}">${avatar(0, c, sp ? 'speak' : '')}
+    return `<div class="pcard" style="border-color:${p.pid === pid ? UI[c] : ''}">${avatar(p.look, c, sp ? 'speak' : '')}
       <div class="col grow"><span class="nm">${esc(p.name)}${p.pid === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       <span class="mic ${p.mic ? 'on' : ''}">${p.mic ? MIC : MIC_OFF}</span></div>`;
   });
