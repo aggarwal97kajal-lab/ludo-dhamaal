@@ -115,7 +115,7 @@ export function roll(s, d) {
   s.rolled = true;
   s.seq++;
   if (d === 6) s.sixes++; else s.sixes = 0;
-  if (s.sixes >= 3) return { dice: d, moves: [], forfeit: true };
+  // No penalty for three 6s in a row: every 6 gives another roll.
   return { dice: d, moves: movableTokens(s, s.turn, d), forfeit: false };
 }
 

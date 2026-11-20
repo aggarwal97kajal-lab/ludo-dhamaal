@@ -20,7 +20,7 @@ s.tokens[0][3] = 53; s.rolled = false; s.turn = 0; s.sixes = 0;
 r = R.roll(s, 4); assert(!r.moves.includes(3), 'overshoot blocked'); R.passTurn(s);
 // three sixes
 s.turn = 2; s.rolled=false; s.sixes=0;
-R.roll(s,6); R.move(s, R.movableTokens(s,2,6)[0]); R.roll(s,6); R.move(s, R.movableTokens(s,2,6)[0]); r = R.roll(s,6); assert(r.forfeit, 'third six forfeit');
+R.roll(s,6); R.move(s, R.movableTokens(s,2,6)[0]); R.roll(s,6); R.move(s, R.movableTokens(s,2,6)[0]); r = R.roll(s,6); assert(!r.forfeit && r.moves.length, 'third six still plays');
 // full random game simulation with bots
 for (let g = 0; g < 300; g++) {
   const n = 2 + (g % 3); const cols = R.seatColors(n);

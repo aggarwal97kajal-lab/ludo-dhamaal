@@ -1154,7 +1154,6 @@ $('setRules').onclick = () => {
   <li>Land on another player to send them back home. They need a 6 to come out again.</li>
   <li>Star squares and start squares are safe. No one can be captured there.</li>
   <li>You get another turn for a 6, a capture, or a player reaching the centre.</li>
-  <li>Three 6s in a row and your turn is lost.</li>
   <li>You need the exact number to reach the centre.</li>
   <li>Get all 4 of your players to the centre to win.</li></ul>
   <h3>How to play Snakes & Ladders</h3><ul>

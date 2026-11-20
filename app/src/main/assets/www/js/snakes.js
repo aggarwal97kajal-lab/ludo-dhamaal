@@ -40,8 +40,8 @@ export function snakeRoll(s, d) {
     s.over = true;
     return ev;
   }
-  // A 6 gives another roll (at most two extra rolls in a row).
-  if (d === 6 && s.sixes < 2) { s.sixes++; ev.extra = true; }
+  // Every 6 gives another roll.
+  if (d === 6) { s.sixes++; ev.extra = true; }
   else { s.sixes = 0; nextTurn(s); }
   return ev;
 }

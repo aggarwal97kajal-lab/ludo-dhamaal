@@ -11,7 +11,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes'], v: 3 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes'], v: 4 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/new' && req.method === 'POST') {
       for (let i = 0; i < 6; i++) {
