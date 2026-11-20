@@ -3,6 +3,7 @@ import { Board3D } from './board3d.js';
 import { sfx, buzz, music, prefs, unlock } from './sound.js';
 import { Net } from './net.js';
 import { Voice, loadIce } from './voice.js';
+import * as VoiceMod from './voice.js';
 
 const $ = id => document.getElementById(id);
 const UI = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0'];
@@ -175,6 +176,7 @@ function renderCards() {
       if (lp && lp.left) st = 'Offline';
       else if (lp && !lp.connected) st = 'Waiting for network...';
       else if (speaking) st = 'Speaking...';
+      else if (p.id !== pid && G.voice && voiceText(p.id) !== 'voice on') st = voiceText(p.id).replace('voice', 'Voice');
     }
     if (p.kind === 'bot') st = p.done ? 'Finished!' : `Bot · Home ${fin}/4`;
     const lp = G.mode === 'online' ? G.lobby.find(x => x.pid === p.id) : null;
@@ -421,6 +423,7 @@ function openRoom(code) {
   G.net = new Net({ message: m => { const g = G; if (!g || !g.net) return; g.q = g.q.then(() => onNet(m)).catch(err => console.error(err)); }, status: st => setNetState(st) });
   G.voice = new Voice((to, data) => G && G.net && G.net.send({ t: 'rtc', to, data }), (who, on) => { if (!G) return; if (on) G.speaking.add(who); else G.speaking.delete(who); if (current === 'lobby') renderLobby(); else renderCards(); });
   G.voice.setListen(settings.listen);
+  G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (current === 'game') renderCards(); };
   G.net.join(code, { pid, name: profile.name, look: profile.look });
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
@@ -468,11 +471,13 @@ function renderLobby() {
   const rows = L.map((p, i) => {
     const c = L.length >= 2 ? cols[i] : i;
     const sp = G.speaking.has(p.pid);
-    const st = !p.connected ? 'Waiting for network...' : sp ? 'Speaking...' : p.host ? 'Host' : 'Ready';
+    let st = !p.connected ? 'Waiting for network...' : sp ? 'Speaking...' : p.host ? 'Host' : 'Ready';
+    if (p.pid !== pid && p.connected) st += ' \u00b7 ' + voiceText(p.pid);
     return `<div class="pcard" style="border-color:${p.pid === pid ? UI[c] : ''}">${avatar(p.look, c, sp ? 'speak' : '')}
       <div class="col grow"><span class="nm">${esc(p.name)}${p.pid === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       <span class="mic ${p.mic ? 'on' : ''}">${p.mic ? MIC : MIC_OFF}</span></div>`;
   });
+  $('voiceInfo').textContent = !G.voice.hasMic() ? 'Your mic is not allowed. Others can\u2019t hear you.' : (VoiceMod.RELAY ? 'Voice relay: on' : 'Voice relay: off (voice may fail on mobile data)');
   for (let i = L.length; i < 4; i++) rows.push(`<div class="pcard"><div class="av" style="background:#2E1A75;border-color:#3A2490"></div><div class="col grow"><span class="nm">Empty slot</span><span class="st">Waiting for a friend...</span></div></div>`);
   $('lobbyPlayers').innerHTML = rows.join('');
   const btn = $('lobbyStart');
@@ -569,6 +574,11 @@ function pickOnline(moves) {
   const s = G.s;
   if (moves.length === 1) { setTimeout(() => G && G.net && G.net.send({ t: 'move', token: moves[0], seq: s.seq }), 250); return; }
   board.highlight(s.turn, moves, i => G && G.net && G.net.send({ t: 'move', token: i, seq: s.seq }));
+}
+
+function voiceText(id) {
+  const st = G && G.voice ? G.voice.state(id) : 'none';
+  return st === 'connected' ? 'voice on' : st === 'failed' || st === 'disconnected' ? 'voice failed' : 'voice connecting';
 }
 
 // ---------- Chat (online rooms) ----------

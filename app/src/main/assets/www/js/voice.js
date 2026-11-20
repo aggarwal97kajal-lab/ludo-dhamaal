@@ -1,6 +1,7 @@
 // Live voice chat: every player connects to every other player (WebRTC mesh, max 4 people).
 // Signalling messages go through the room server.
 let ICE = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+export let RELAY = false;
 
 // Ask the room server for relay (TURN) servers so voice works on mobile networks too.
 export async function loadIce(base) {
@@ -10,7 +11,8 @@ export async function loadIce(base) {
     if (!r.ok) return;
     const j = await r.json();
     const list = Array.isArray(j.iceServers) ? j.iceServers : (j.iceServers ? [j.iceServers] : []);
-    if (list.length) ICE = ICE.concat(list);
+    const clean = list.map(x => ({ ...x, urls: [].concat(x.urls || []).filter(u => !/:53(\?|$)/.test(u)) })).filter(x => x.urls.length);
+    if (clean.length) { ICE = ICE.concat(clean); RELAY = clean.some(x => x.urls.some(u => u.startsWith('turn'))); }
   } catch (e) { /* STUN only */ }
 }
 
@@ -48,6 +50,8 @@ export class Voice {
 
   hasMic() { return !!this.local; }
 
+  state(pid) { const p = this.peers.get(pid); return p ? p.pc.connectionState : 'none'; }
+
   setMuted(m) {
     this.muted = m;
     if (this.local) this.local.getAudioTracks().forEach(t => { t.enabled = !m; });
@@ -75,7 +79,10 @@ export class Voice {
     else pc.addTransceiver('audio', { direction: 'recvonly' });
     pc.onicecandidate = e => { if (e.candidate) this.send(pid, { ice: e.candidate }); };
     pc.ontrack = e => {
-      const a = new Audio(); a.autoplay = true; a.srcObject = e.streams[0];
+      if (peer.audio) { peer.audio.srcObject = null; peer.audio.remove(); }
+      const a = document.createElement('audio'); a.autoplay = true; a.setAttribute('playsinline', ''); a.srcObject = e.streams[0];
+      a.style.display = 'none'; document.body.appendChild(a);
+      if (window.LDNative && window.LDNative.speaker) window.LDNative.speaker();
       a.muted = this.deafened.has(pid) || this.allOff;
       peer.audio = a; a.play().catch(() => {});
       try {
@@ -83,7 +90,10 @@ export class Voice {
         const src = this.ac.createMediaStreamSource(e.streams[0]); const an = this.ac.createAnalyser(); an.fftSize = 256; src.connect(an); peer.an = an;
       } catch (x) { /* level meter is optional */ }
     };
-    pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed' && this.me < pid) { this.drop(pid); this.call(pid); } };
+    pc.onconnectionstatechange = () => {
+      if (this.onState) this.onState(pid, pc.connectionState);
+      if (pc.connectionState === 'failed' && this.me < pid) { this.drop(pid); this.call(pid); }
+    };
     return peer;
   }
 
@@ -155,7 +165,7 @@ export class Voice {
 
   drop(pid) {
     const p = this.peers.get(pid);
-    if (p) { try { p.pc.close(); } catch (e) { /* ignore */ } if (p.audio) p.audio.srcObject = null; }
+    if (p) { try { p.pc.close(); } catch (e) { /* ignore */ } if (p.audio) { p.audio.srcObject = null; p.audio.remove(); } }
     this.peers.delete(pid);
   }
 

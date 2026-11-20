@@ -41,7 +41,9 @@ async function turn(env) {
     });
     if (!r.ok) return json({ iceServers: [] });
     const j = await r.json();
-    return json({ iceServers: j.iceServers || [] });
+    const list = Array.isArray(j.iceServers) ? j.iceServers : (j.iceServers ? [j.iceServers] : []);
+    const clean = list.map(x => ({ ...x, urls: [].concat(x.urls || []).filter(u => !/:53(\?|$)/.test(u)) })).filter(x => x.urls.length);
+    return json({ iceServers: clean, relay: clean.some(x => x.urls.some(u => u.startsWith('turn'))) });
   } catch (e) { return json({ iceServers: [] }); }
 }
 

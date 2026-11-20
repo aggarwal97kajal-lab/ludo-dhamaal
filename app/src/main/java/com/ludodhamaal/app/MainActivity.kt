@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -74,6 +77,7 @@ class MainActivity : AppCompatActivity() {
                     if (!wantsMic) { request.deny(); return@runOnUiThread }
                     if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                         request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                        useLoudspeaker()
                     } else {
                         pendingMic = request
                         ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), micCode)
@@ -106,18 +110,38 @@ class MainActivity : AppCompatActivity() {
             pendingMic = null
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 req.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                useLoudspeaker()
             } else req.deny()
         }
     }
 
     override fun onPause() { super.onPause(); web.onPause() }
-    override fun onResume() { super.onResume(); web.onResume() }
+    override fun onResume() { super.onResume(); web.onResume(); useLoudspeaker() }
+
+    // Voice chat runs in "call" mode, which plays through the small earpiece by default.
+    // Send it to the loudspeaker so friends can be heard while the phone is held for the game.
+    private fun useLoudspeaker() {
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
+            if (Build.VERSION.SDK_INT >= 31) {
+                val speaker = am.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                if (speaker != null) am.setCommunicationDevice(speaker)
+            } else {
+                @Suppress("DEPRECATION")
+                am.isSpeakerphoneOn = true
+            }
+        } catch (e: Exception) { /* keep default routing */ }
+    }
 
     private fun openOutside(url: Uri) {
         try { startActivity(Intent(Intent.ACTION_VIEW, url)) } catch (e: Exception) { /* no app for it */ }
     }
 
     inner class Bridge {
+        @JavascriptInterface
+        fun speaker() { runOnUiThread { useLoudspeaker() } }
+
         @JavascriptInterface
         fun copy(text: String) {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
