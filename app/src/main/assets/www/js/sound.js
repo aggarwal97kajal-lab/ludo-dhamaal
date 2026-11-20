@@ -38,6 +38,8 @@ export function sfx(name) {
   switch (name) {
     case 'dice': for (let i = 0; i < 6; i++) noise(i * 0.12, 0.06, 0.35 - i * 0.04); break;
     case 'hop': tone(520, 0, 0.09, 'triangle', 0.12, 780); break;
+    case 'step': tone(260, 0, 0.05, 'sine', 0.07, 200); break;
+    case 'tick': tone(1200, 0, 0.04, 'square', 0.04); break;
     case 'capture': tone(900, 0, 0.5, 'sawtooth', 0.12, 120); noise(0, 0.25, 0.25); buzz([60, 40, 90]); break;
     case 'finish': [660, 880, 1100].forEach((f, i) => tone(f, i * 0.09, 0.25, 'sine', 0.18)); break;
     case 'win': [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, i * 0.13, 0.3, 'triangle', 0.2)); break;

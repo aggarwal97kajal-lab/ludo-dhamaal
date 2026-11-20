@@ -12,7 +12,7 @@
 
 ## Rules used
 
-6 to come out, capture sends the player home, star and start squares are safe, extra turn for 6 / capture / reaching the centre, three 6s lose the turn, exact number to finish. No block (jodi) rule. A player who goes offline is skipped (no bot plays for them); 30 seconds per turn online.
+6 to come out, capture sends the player home, star and start squares are safe, extra turn for 6 / capture / reaching the centre, three 6s lose the turn, exact number to finish. No block (jodi) rule. A player who goes offline is skipped (no bot plays for them); 15 seconds per turn (online and offline).
 
 ## APK
 

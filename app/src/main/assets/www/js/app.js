@@ -212,10 +212,41 @@ function turnLabel() {
     return (p.id === pid ? 'Your turn' : `${p.name}’s turn`) + tail;
   }
   if (p.kind === 'bot') return `${p.name} is playing...`;
-  if (G.mode === 'local') return `${p.name}’s turn`;
-  return 'Your turn';
+  const left = G.turnEnds ? Math.max(0, Math.ceil((G.turnEnds - Date.now()) / 1000)) : '';
+  const tail = left !== '' ? ` · 0:${String(left).padStart(2, '0')}` : '';
+  if (G.mode === 'local') return `${p.name}’s turn${tail}`;
+  return 'Your turn' + tail;
 }
-setInterval(() => { if (G && current === 'game') $('turnText').textContent = turnLabel(); }, 500);
+// 15 second turn timer: roll and move within it, or the turn is lost.
+const TURN_SECS = 15;
+function armTimer() {
+  if (!G || G.mode === 'online') return;
+  const p = playerOf(G.s, G.s.turn);
+  G.turnEnds = p && p.kind === 'me' && !G.s.over ? Date.now() + TURN_SECS * 1000 : null;
+}
+let lastTick = 0;
+setInterval(() => {
+  if (!G || current !== 'game' || !G.s) { $('tfill').style.width = '0'; return; }
+  $('turnText').textContent = turnLabel();
+  const left = G.turnEnds ? G.turnEnds - Date.now() : null;
+  const fill = $('tfill');
+  if (left == null || G.s.over) fill.style.width = '0';
+  else {
+    fill.style.width = Math.max(0, Math.min(100, left / (TURN_SECS * 10))) + '%';
+    fill.classList.toggle('low', left < 5000);
+    const sec = Math.ceil(left / 1000);
+    const mine = G.mode === 'online' ? playerOf(G.s, G.s.turn).id === pid : true;
+    if (mine && sec <= 5 && sec > 0 && sec !== lastTick) { lastTick = sec; sfx('tick'); }
+  }
+  if (G.mode !== 'online' && G.turnEnds && left <= 0 && !G.busy) timeUp();
+}, 250);
+function timeUp() {
+  const s = G.s; G.turnEnds = null;
+  board.clearHighlight();
+  note('Time up, turn skipped'); buzz([80]);
+  if (G.pickRes) { const f = G.pickRes; G.pickRes = null; f(-1); return; }
+  passTurn(s); afterMove();
+}
 
 function myTurnToRoll() {
   if (!G || G.busy) return false;
@@ -297,11 +328,12 @@ function nextOffline() {
   renderCards(); refreshDice();
   if (s.over) return finishGame();
   const p = playerOf(s, s.turn);
+  armTimer();
   if (p.kind === 'bot') setTimeout(() => { if (G && G.s === s) offlineRoll(); }, 750);
 }
 
 async function offlineRoll() {
-  const s = G.s; G.busy = true; refreshDice();
+  const s = G.s; G.busy = true; G.turnEnds = null; refreshDice();
   const d = 1 + Math.floor(Math.random() * 6);
   const r = roll(s, d);
   if (!r) { G.busy = false; return; }
@@ -313,7 +345,12 @@ async function offlineRoll() {
   let pick;
   if (p.kind === 'bot') { await board.wait(350); pick = botChoice(s, s.turn, d, r.moves); }
   else if (r.moves.length === 1) { await board.wait(250); pick = r.moves[0]; }
-  else { G.busy = false; pick = await new Promise(res => board.highlight(s.turn, r.moves, res)); G.busy = true; }
+  else {
+    armTimer(); G.busy = false;
+    pick = await new Promise(res => { G.pickRes = res; board.highlight(s.turn, r.moves, i => { G.pickRes = null; res(i); }); });
+    G.busy = true; G.turnEnds = null;
+    if (pick === -1) { passTurn(s); return afterMove(); }
+  }
   const ev = move(s, pick);
   await board.animateMove(ev, s.tokens, sfx);
   if (ev.captured.length) { const v = playerOf(s, ev.captured[0].color); toast(p.kind === 'me' && G.mode === 'bot' ? `You captured ${v.name}!` : `${p.name} captured ${v.name}!`, UI[p.color]); buzz([40, 30, 80]); }

@@ -191,6 +191,7 @@ export class Board3D {
     this.tx = [null]; for (let v = 1; v <= 6; v++) this.tx.push(dtx(v));
     this.dm = [3, 4, 1, 6, 2, 5].map(v => M('#ffffff', { map: this.tx[v], roughness: 0.2 }));
     this.dice = mk(new T.BoxGeometry(1.05, 1.05, 1.05), this.dm, 0, 2.4, 0);
+    this.dm.forEach(m => { m.depthTest = false; m.depthWrite = false; });
     this.diceState = 'idle';
 
     // Sparkles
@@ -358,19 +359,30 @@ export class Board3D {
     const p = this.people[ev.color][ev.token];
     const path = stepsBetween(ev.from, ev.to);
     const u = p.userData;
-    for (const q of path) {
-      const a = [p.position.x, p.position.z];
-      const last = q === path[path.length - 1];
-      const s = last ? this.spot(ev.color, ev.token, q, tokensAfter) : this.spot(ev.color, ev.token, q, null);
-      if (Math.hypot(s[0] - a[0], s[2] - a[1]) > 0.01) u.yaw = Math.atan2(s[0] - a[0], s[2] - a[1]);
-      if (sound) sound('hop');
-      await this.tween(0.36, k => {
-        p.position.set(a[0] + (s[0] - a[0]) * k, s[1] + Math.abs(Math.sin(k * Math.PI * 2)) * 0.07, a[1] + (s[2] - a[1]) * k);
-        u.walkRow = k < 0.5 ? 1 : 2;
+    const pts = [[p.position.x, p.position.z, p.userData.base || 0.11, 1]];
+    path.forEach((q, i) => { const sp = this.spot(ev.color, ev.token, q, i === path.length - 1 ? tokensAfter : null); pts.push([sp[0], sp[2], sp[1], sp[3]]); });
+    const segs = []; let total = 0;
+    for (let i = 1; i < pts.length; i++) { const L = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); segs.push(L); total += L; }
+    if (total > 0.001) {
+      let lastStep = -1;
+      await this.tween(Math.max(0.35, total * 0.34), k => {
+        let d = k * total, i = 0;
+        while (i < segs.length - 1 && d > segs[i]) { d -= segs[i]; i++; }
+        const f = segs[i] > 0 ? Math.min(1, d / segs[i]) : 1, A = pts[i], B = pts[i + 1];
+        const x = A[0] + (B[0] - A[0]) * f, z = A[1] + (B[1] - A[1]) * f;
+        if (segs[i] > 0.01) u.yaw = Math.atan2(B[0] - A[0], B[1] - A[1]);
+        const walked = k * total * 2;                      // two steps per square
+        const phase = walked % 2;
+        u.walkRow = phase < 0.5 ? 1 : phase < 1 ? 0 : phase < 1.5 ? 2 : 0;
+        p.position.set(x, A[2] + (B[2] - A[2]) * f + Math.abs(Math.sin(walked * Math.PI)) * 0.06, z);
+        const step = Math.floor(walked);
+        if (step !== lastStep) { lastStep = step; if (sound) sound('step'); }
       });
-      p.scale.setScalar(PS * s[3]);
-      p.userData.base = s[1];
     }
+    const end = pts[pts.length - 1];
+    p.position.set(end[0], end[2], end[1]);
+    p.scale.setScalar(PS * end[3]);
+    p.userData.base = end[2];
     u.walkRow = 0;
     this.puff(p.position.x, p.position.z);
     u.pose(1, 0);
@@ -403,8 +415,9 @@ export class Board3D {
   sortPeople() {
     const cp = this.cam.position, list = [];
     this.inPlay.forEach(c => this.people[c].forEach(p => list.push(p)));
+    list.push(this.dice);
     list.sort((a, b) => b.position.distanceToSquared(cp) - a.position.distanceToSquared(cp));
-    list.forEach((p, i) => { p.userData.sp.renderOrder = 10 + i; });
+    list.forEach((p, i) => { if (p === this.dice) p.renderOrder = 10 + i; else p.userData.sp.renderOrder = 10 + i; });
   }
 
   highlight(color, idxs, onPick) {

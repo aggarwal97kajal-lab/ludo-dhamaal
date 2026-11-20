@@ -203,3 +203,8 @@ img.body { display: block; width: auto; pointer-events: none; }
 @keyframes saypop { 0% { opacity: 0; transform: scale(.6); } 10% { opacity: 1; transform: scale(1.05); } 15% { transform: scale(1); } 85% { opacity: 1; } 100% { opacity: 0; transform: translateY(-14px); } }
 
 #gameSound.off { color: #ff8fa3; }
+
+/* Turn timer */
+.tbar { width: 120px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .12); overflow: hidden; margin-top: 4px; }
+.tbar i { display: block; height: 100%; width: 0; background: var(--gold); border-radius: 3px; transition: width .25s linear, background .3s; }
+.tbar i.low { background: #ff4d6d; }

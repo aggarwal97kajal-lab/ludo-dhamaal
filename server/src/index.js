@@ -3,7 +3,7 @@ import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf } fr
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const TURN_MS = 30000;
+const TURN_MS = 15000;
 const AWAY_MS = 4000;
 
 export default {
