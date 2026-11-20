@@ -199,8 +199,8 @@ export class Board3D {
     const g = new T.Group();
     const shadow = new T.Mesh(this.shadowG, this.shadowM); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; g.add(shadow);
     const ring = new T.Mesh(this.baseG, this.mat(TEAM[color], { emissive: TEAM[color], emissiveIntensity: 0.35 })); ring.position.y = 0.03; g.add(ring);
-    const mat = new T.SpriteMaterial({ map: this.charTex(color), alphaTest: 0.5, transparent: false });
-    const sp = new T.Sprite(mat); sp.center.set(0.5, 0); sp.renderOrder = 3; g.add(sp);
+    const mat = new T.SpriteMaterial({ map: this.charTex(color), alphaTest: 0.08, transparent: true, depthTest: false, depthWrite: false });
+    const sp = new T.Sprite(mat); sp.center.set(0.5, 0); sp.renderOrder = 10; g.add(sp);
     sp.userData.owner = g;
     const H = 1.9;
     const u = g.userData = { color, sp, ph: Math.random() * 6, hop: 2 + Math.random() * 5, flip: 1, sq: 1, tilt: 0 };
@@ -324,6 +324,15 @@ export class Board3D {
     this.placeAll(tokensAfter);
   }
 
+  // Characters ignore the board's depth so walls never hide them; the ones farther from
+  // the camera are drawn first so nearer ones correctly stand in front.
+  sortPeople() {
+    const cp = this.cam.position, list = [];
+    this.inPlay.forEach(c => this.people[c].forEach(p => list.push(p)));
+    list.sort((a, b) => b.position.distanceToSquared(cp) - a.position.distanceToSquared(cp));
+    list.forEach((p, i) => { p.userData.sp.renderOrder = 10 + i; });
+  }
+
   // Turn the picture left or right so the character faces the way it walks on screen.
   faceWay(p, x0, z0, x1, z1) {
     const a = new T.Vector3(x0, 0, z0).project(this.cam), b = new T.Vector3(x1, 0, z1).project(this.cam);
@@ -401,6 +410,7 @@ export class Board3D {
     this.time += dt;
     const T0 = this.time;
     this.shake *= 0.9; this.updCam();
+    this.sortPeople();
     for (let i = 0; i < this.N; i++) { this.pp[i * 3 + 1] += dt * 0.35; if (this.pp[i * 3 + 1] > 9) this.pp[i * 3 + 1] = -1; }
     this.pg.attributes.position.needsUpdate = true;
     this.dust.forEach(d => { if (d.l > 0) { d.l -= dt; d.m.position.x += d.vx * dt; d.m.position.z += d.vz * dt; const k = 1 - d.l / 0.35; d.m.scale.set(1 + k * 1.5, 0.5 + k * 0.5, 1 + k * 1.5); d.m.material.opacity = 0.55 * (1 - k); } else d.m.material.opacity = 0; });
