@@ -23,6 +23,36 @@ const ease = k => 1 - Math.pow(1 - k, 3);
 const PS = 1.0; // size of the people on the board
 // Pictures: img/c<character>-<team colour>.png (every character exists in all 4 team colours)
 
+// Recolour the clothes on a character sheet to another team colour, keeping the shading.
+const CLOTH = [[340, 15], [70, 150], [30, 68], [175, 212]];
+const TEAM_RGB = [[224, 16, 58], [0, 200, 83], [255, 208, 0], [30, 94, 240]];
+function recolorClothes(ctx, ch, color) {
+  const W = ctx.canvas.width, H = ctx.canvas.height, cellH = H / 3;
+  const d = ctx.getImageData(0, 0, W, H), px = d.data;
+  const [h0, h1] = CLOTH[ch], tgt = TEAM_RGB[color];
+  const mask = new Uint8Array(W * H), hist = new Uint32Array(256);
+  for (let i = 0, n = 0; i < px.length; i += 4, n++) {
+    if (px[i + 3] < 8) continue;
+    const y = Math.floor(n / W) % cellH;
+    if (y < cellH * 0.36) continue;
+    const r = px[i], g = px[i + 1], b = px[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), dd = mx - mn;
+    if (mx < 46 || dd / (mx || 1) < 0.3) continue;
+    let h = mx === r ? ((g - b) / dd) % 6 : mx === g ? (b - r) / dd + 2 : (r - g) / dd + 4; h *= 60; if (h < 0) h += 360;
+    const inBand = h0 > h1 ? (h >= h0 || h <= h1) : (h >= h0 && h <= h1);
+    if (!inBand) continue;
+    mask[n] = 1; hist[Math.round(0.3 * r + 0.59 * g + 0.11 * b)]++;
+  }
+  let total = 0; for (let v = 0; v < 256; v++) total += hist[v];
+  let acc = 0, med = 128; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= total / 2) { med = v || 1; break; } }
+  for (let i = 0, n = 0; i < px.length; i += 4, n++) {
+    if (!mask[n]) continue;
+    const lum = 0.3 * px[i] + 0.59 * px[i + 1] + 0.11 * px[i + 2];
+    const sh = Math.max(0.25, Math.min(1.45, lum / med)), hi = Math.max(0, Math.min(1, (sh - 1) / 0.45)) * 0.35;
+    for (let k = 0; k < 3; k++) px[i + k] = Math.min(255, tgt[k] * sh) * (1 - hi) + 255 * hi;
+  }
+  ctx.putImageData(d, 0, 0);
+}
+
 export class Board3D {
   constructor(canvas) {
     this.canvas = canvas;
@@ -185,33 +215,70 @@ export class Board3D {
   }
 
   // ---------- People (cartoon character pictures standing on the board) ----------
-  charTex(color) {
-    this.texCache = this.texCache || {};
+  // Each character has one picture sheet: 3 rows (standing, walk step A, walk step B) x
+  // 5 views (front, front 3/4, side, back 3/4, back), all facing right. Other team colours
+  // are made here by recolouring only the clothes.
+  sheetTex(color) {
+    this.sheets = this.sheets || {};
     const ch = (this.looks && this.looks[color] != null ? this.looks[color] : color) % 4;
     const key = ch + '-' + color;
-    if (!this.texCache[key]) {
-      const t = new T.TextureLoader().load('img/c' + key + '.png', tex => { this.texAspect[color] = tex.image.width / tex.image.height; this.people[color].forEach(p => p.userData.fit()); });
-      t.anisotropy = 4; this.texCache[key] = t;
-    } else if (this.texCache[key].image) this.texAspect[color] = this.texCache[key].image.width / this.texCache[key].image.height;
-    return this.texCache[key];
+    if (!this.sheets[key]) {
+      const cv = document.createElement('canvas'); cv.width = 1000; cv.height = 840;
+      const tex = new T.CanvasTexture(cv); tex.anisotropy = 4;
+      const img = new Image();
+      img.onload = () => {
+        const x = cv.getContext('2d'); x.drawImage(img, 0, 0, 1000, 840);
+        if (ch !== color) recolorClothes(x, ch, color);
+        tex.needsUpdate = true;
+        (tex._copies || []).forEach(t => { t.needsUpdate = true; });
+      };
+      img.src = 'img/walk' + ch + '.webp';
+      this.sheets[key] = tex;
+    }
+    return this.sheets[key];
   }
 
   person(color) {
-    this.texAspect = this.texAspect || {};
     const g = new T.Group();
     const shadow = new T.Mesh(this.shadowG, this.shadowM); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; g.add(shadow);
     const ring = new T.Mesh(this.baseG, this.mat(TEAM[color], { emissive: TEAM[color], emissiveIntensity: 0.35 })); ring.position.y = 0.03; g.add(ring);
-    const mat = new T.SpriteMaterial({ map: this.charTex(color), alphaTest: 0.08, transparent: true, depthTest: false, depthWrite: false });
-    const sp = new T.Sprite(mat); sp.center.set(0.5, 0); sp.renderOrder = 10; g.add(sp);
+    const base = this.sheetTex(color), map = base.clone(); map.needsUpdate = true;
+    (base._copies = base._copies || []).push(map);
+    map.repeat.set(1 / 5, 1 / 3);
+    const mat = new T.SpriteMaterial({ map, alphaTest: 0.08, transparent: true, depthTest: false, depthWrite: false });
+    const sp = new T.Sprite(mat); sp.center.set(0.5, 0.02); sp.renderOrder = 10; g.add(sp);
     sp.userData.owner = g;
-    const H = 1.9;
-    const u = g.userData = { color, sp, ph: Math.random() * 6, hop: 2 + Math.random() * 5, flip: 1, sq: 1, tilt: 0 };
-    u.fit = () => { const a = this.texAspect[color] || 0.48; sp.scale.set(H * a * u.flip / u.sq, H * u.sq, 1); mat.rotation = u.tilt; };
+    const H = 2.15, Wd = H * 200 / 280;
+    const u = g.userData = { color, sp, map, ph: Math.random() * 6, hop: 3 + Math.random() * 6, sq: 1, tilt: 0, yaw: 0, row: 0, col: 0, mirror: 1 };
+    u.fit = () => { sp.scale.set(Wd * u.mirror / u.sq, H * u.sq, 1); mat.rotation = u.tilt; };
     u.pose = (squash, tilt) => { u.sq = squash; u.tilt = tilt; u.fit(); };
-    u.fit();
+    u.setFrame = (row, col, mirror) => {
+      if (row === u.row && col === u.col && mirror === u.mirror) return;
+      u.row = row; u.col = col; u.mirror = mirror;
+      map.offset.set(col / 5, 1 - (row + 1) / 3); u.fit();
+    };
+    u.row = -1; u.setFrame(0, 0, 1);
     g.scale.setScalar(PS);
     this.S.add(g);
     return g;
+  }
+
+  // Choose which side of the character to show: compare the way it faces with the way
+  // the camera looks at it. Views facing left are the right-facing pictures flipped.
+  updateViews() {
+    const cp = this.cam.position;
+    this.inPlay.forEach(c => this.people[c].forEach(p => {
+      const u = p.userData;
+      const vx = p.position.x - cp.x, vz = p.position.z - cp.z;
+      const len = Math.hypot(vx, vz) || 1;
+      const fx = Math.sin(u.yaw), fz = Math.cos(u.yaw);
+      const toCam = -(fx * vx + fz * vz) / len;            // 1 = facing the camera
+      const right = (-fx * vz + fz * vx) / len;            // > 0 = facing screen-right
+      const ang = Math.acos(Math.max(-1, Math.min(1, toCam))) * 180 / Math.PI;
+      const col = ang < 22.5 ? 0 : ang < 67.5 ? 1 : ang < 112.5 ? 2 : ang < 157.5 ? 3 : 4;
+      const mirror = (col === 0 || col === 4) ? 1 : (right >= 0 ? 1 : -1);
+      u.setFrame(u.walkRow || 0, col, mirror);
+    }));
   }
 
   setPlayers(colors, looks) {
@@ -255,8 +322,11 @@ export class Board3D {
       const s = this.spot(c, i, tokens[c][i], tokens);
       p.position.set(s[0], s[1], s[2]); p.scale.setScalar(PS * s[3]);
       p.userData.base = s[1];
-      p.rotation.set(0, Math.atan2(-s[0], -s[2]) + Math.PI, 0);
-      if (tokens[c][i] === -1) p.rotation.y = this.th;
+      const q = tokens[c][i];
+      if (q >= 0 && q < 56) {
+        const a = cellOf(c, q), b = cellOf(c, Math.min(q + 1, 55));
+        p.userData.yaw = (q === 55 || (a[0] === b[0] && a[1] === b[1])) ? Math.atan2(-s[0], -s[2]) : Math.atan2(b[0] - a[0], b[1] - a[1]);
+      } else p.userData.yaw = Math.atan2(-s[0], -s[2]);
     }));
     this.tokens = tokens.map(t => t.slice());
   }
@@ -292,17 +362,17 @@ export class Board3D {
       const a = [p.position.x, p.position.z];
       const last = q === path[path.length - 1];
       const s = last ? this.spot(ev.color, ev.token, q, tokensAfter) : this.spot(ev.color, ev.token, q, null);
-      this.faceWay(p, a[0], a[1], s[0], s[2]);
+      if (Math.hypot(s[0] - a[0], s[2] - a[1]) > 0.01) u.yaw = Math.atan2(s[0] - a[0], s[2] - a[1]);
       if (sound) sound('hop');
-      await this.tween(0.26, k => {
-        p.position.set(a[0] + (s[0] - a[0]) * k, s[1] + Math.sin(k * Math.PI) * 0.55, a[1] + (s[2] - a[1]) * k);
-        u.pose(1 + Math.sin(k * Math.PI) * 0.1, Math.sin(k * Math.PI * 2) * 0.14 * u.flip);
+      await this.tween(0.36, k => {
+        p.position.set(a[0] + (s[0] - a[0]) * k, s[1] + Math.abs(Math.sin(k * Math.PI * 2)) * 0.07, a[1] + (s[2] - a[1]) * k);
+        u.walkRow = k < 0.5 ? 1 : 2;
       });
-      u.pose(0.86, 0); await this.tween(0.06, k => u.pose(0.86 + k * 0.14, 0));
-      this.puff(s[0], s[2]);
       p.scale.setScalar(PS * s[3]);
       p.userData.base = s[1];
     }
+    u.walkRow = 0;
+    this.puff(p.position.x, p.position.z);
     u.pose(1, 0);
     if (ev.captured.length) {
       this.shake = 0.6;
@@ -312,6 +382,7 @@ export class Board3D {
         const v = this.people[cp.color][cp.token];
         const a = [v.position.x, v.position.z];
         const s = this.spot(cp.color, cp.token, -1, tokensAfter);
+        v.userData.walkRow = 0;
         return this.tween(1.25, k => {
           v.position.set(a[0] + (s[0] - a[0]) * k, 0.11 + Math.sin(k * Math.PI) * 5.5 + 0.16 * k, a[1] + (s[2] - a[1]) * k);
           v.userData.pose(1, k * Math.PI * 4);
@@ -334,13 +405,6 @@ export class Board3D {
     this.inPlay.forEach(c => this.people[c].forEach(p => list.push(p)));
     list.sort((a, b) => b.position.distanceToSquared(cp) - a.position.distanceToSquared(cp));
     list.forEach((p, i) => { p.userData.sp.renderOrder = 10 + i; });
-  }
-
-  // Turn the picture left or right so the character faces the way it walks on screen.
-  faceWay(p, x0, z0, x1, z1) {
-    const a = new T.Vector3(x0, 0, z0).project(this.cam), b = new T.Vector3(x1, 0, z1).project(this.cam);
-    const dx = b.x - a.x;
-    if (Math.abs(dx) > 0.002) { p.userData.flip = dx >= 0 ? 1 : -1; p.userData.fit(); }
   }
 
   highlight(color, idxs, onPick) {
@@ -414,6 +478,7 @@ export class Board3D {
     const T0 = this.time;
     this.shake *= 0.9; this.updCam();
     this.sortPeople();
+    this.updateViews();
     for (let i = 0; i < this.N; i++) { this.pp[i * 3 + 1] += dt * 0.35; if (this.pp[i * 3 + 1] > 9) this.pp[i * 3 + 1] = -1; }
     this.pg.attributes.position.needsUpdate = true;
     this.dust.forEach(d => { if (d.l > 0) { d.l -= dt; d.m.position.x += d.vx * dt; d.m.position.z += d.vz * dt; const k = 1 - d.l / 0.35; d.m.scale.set(1 + k * 1.5, 0.5 + k * 0.5, 1 + k * 1.5); d.m.material.opacity = 0.55 * (1 - k); } else d.m.material.opacity = 0; });
@@ -434,7 +499,7 @@ export class Board3D {
           const k = -u.hop / 0.5; y += Math.sin(Math.min(k, 1) * Math.PI) * 0.35;
           u.pose(1 + Math.sin(Math.min(k, 1) * Math.PI) * 0.08, 0);
           if (k >= 1) { u.hop = 4 + Math.random() * 7; u.pose(1, 0); }
-        } else if (u.tilt === 0 && Math.random() < 0.002) { u.flip = -u.flip; u.fit(); }
+        }
         p.position.y = y;
       }));
     }
