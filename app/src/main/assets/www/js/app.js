@@ -6,6 +6,8 @@ import { Voice, loadIce } from './voice.js';
 import * as VoiceMod from './voice.js';
 import { Chess3D } from './chess3d.js';
 import { SnakeBoard3D } from './snakes3d.js';
+import { Carrom3D } from './carrom3d.js';
+import { newCarrom, applyShot, carromBot, carromPass, strikerSpot, forwardOk, BASE as CBASE, LO as CLO, HI as CHI } from './carrom.js';
 import { newSnakes, snakeRoll, snakePass, GOAL } from './snakes.js';
 import { Chess } from './chesslib.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
@@ -25,7 +27,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('ld:' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 };
 let profile = store.get('profile', null);
-const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true }, store.get('settings', {}));
+const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true }, store.get('settings', {}));
 let pid = store.get('pid', null);
 if (!pid) { pid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); store.set('pid', pid); }
 Object.assign(prefs, { sound: settings.sound, music: settings.music, vibrate: settings.vibrate });
@@ -44,6 +46,7 @@ function show(id) {
   current = id;
   if (board) board.paused = id !== 'game';
   if (cboard) cboard.paused = id !== 'chess';
+  if (rboard) rboard.paused = id !== 'carrom';
   if (id === 'home') renderHome();
   if (id === 'gamehome') renderModes();
 }
@@ -106,7 +109,7 @@ $('pfSave').onclick = () => {
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
-const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders' };
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom' };
 function renderHome() {
   $('homeAv').outerHTML = `<div class="av sm" id="homeAv" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
   $('homeName').textContent = profile.name;
@@ -115,6 +118,8 @@ function renderHome() {
       <div class="art">${[0, 3].map(i => body(i, i, 128)).join('')}</div></button>
     <button class="gamecard chess" data-game="chess"><div class="col"><span class="t">Chess</span><span class="s">3D chess with move help that shows where each piece can go.</span><span class="play">Play</span></div>
       <div class="art glyphs">&#9819;<b>&#9822;</b></div></button>
+    <button class="gamecard carrom" data-game="carrom"><div class="col"><span class="t">Carrom</span><span class="s">Flick the striker and pocket your coins. Aim arrows show where coins go.</span><span class="play">Play</span></div>
+      <div class="art"><div class="cboardart"><i style="left:6px;top:6px;background:#120a06"></i><i style="right:6px;top:6px;background:#120a06"></i><i style="left:6px;bottom:6px;background:#120a06"></i><i style="right:6px;bottom:6px;background:#120a06"></i><i style="left:40px;top:40px;background:#d9142e"></i><i style="left:26px;top:38px;background:#f6efdc;border:1px solid #c9b98f"></i><i style="left:54px;top:40px;background:#1f1f1f"></i><i style="left:40px;top:24px;background:#1f1f1f"></i><i style="left:40px;top:56px;background:#f6efdc;border:1px solid #c9b98f"></i></div></div></button>
     <button class="gamecard snakes" data-game="snakes"><div class="col"><span class="t">Snakes & Ladders</span><span class="s">Climb the ladders, dodge the snakes. First to 100 wins!</span><span class="play">Play</span></div>
       <div class="art">${body(2, 2, 120)}</div></button>
     <div class="gamecard soon"><span class="t">More games coming soon</span></div>`;
@@ -127,9 +132,14 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div><div class="l2">Board</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
-  const modes = chess ? [
+  const modes = GAME === 'carrom' ? [
+    ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
+    ['join', 'Join a room', 'Enter your friend’s room code', 3, [3]],
+    ['bot', 'Play vs computer', 'Play solo against the computer', 1, [1]],
+    ['local', 'Pass & play', '2 players taking turns on one phone', 2, [2, 0]]
+  ] : chess ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, g(PIECE.q + PIECE.k)],
     ['join', 'Join a room', 'Enter your friend’s room code', 3, g(PIECE.r)],
     ['bot', 'Play vs computer', 'Play solo against the computer', 1, g(PIECE.n)],
@@ -164,6 +174,7 @@ function openSetup(m) {
 function setupColors() { return seatColors(setupN).map(c => (c + profile.color) % 4); }
 function renderSetup() {
   if (GAME === 'chess') return renderChessSetup();
+  if (GAME === 'carrom') return renderCarromSetup();
   $('setupAsk').textContent = 'How many players?';
   $('setupCount').innerHTML = [2, 3, 4].map(n => `<button class="countbtn ${n === setupN ? 'on' : ''}" data-n="${n}">${n}</button>`).join('');
   const cols = setupColors();
@@ -179,6 +190,7 @@ $('setupCount').addEventListener('click', e => {
 });
 $('setupGo').onclick = () => {
   if (GAME === 'chess') return goChessSetup();
+  if (GAME === 'carrom') return goCarromSetup();
   const cols = setupColors();
   const others = [0, 1, 2, 3].filter(x => x !== ch(profile.look));
   const players = cols.map((c, i) => {
@@ -218,7 +230,7 @@ function syncBoard(b) {
 // build a new board with the same game on it.
 function checkBoards() {
   const now = Date.now();
-  [board, cboard].forEach(b => { if (b && !b.lost && !b.dead) { try { if (b.R.getContext().isContextLost()) { b.lost = true; b.lostAt = now; } } catch (e) { /* ignore */ } } });
+  [board, cboard, rboard].forEach(b => { if (b && !b.lost && !b.dead) { try { if (b.R.getContext().isContextLost()) { b.lost = true; b.lostAt = now; } } catch (e) { /* ignore */ } } });
   if (board && board.lost && now - board.lostAt > 900) {
     const hl = board.hlArgs, kind = board.kind; dropBoard();
     if (G && G.s && G.s.game !== 'chess') { const b = ensureBoard(kind); syncBoard(b); b.paused = current !== 'game'; if (hl) b.highlight(...hl); }
@@ -226,6 +238,10 @@ function checkBoards() {
   if (cboard && cboard.lost && now - cboard.lostAt > 900) {
     dropCBoard();
     if (G && G.s && G.s.game === 'chess') { const b = ensureCBoard(); b.setPosition(G.s.fen); b.setLast(G.s.last); setChessCheck(); b.view(chessViewSide(), false); b.paused = current !== 'chess'; if (G.sel) chessTap(G.sel, true); }
+  }
+  if (rboard && rboard.lost && now - rboard.lostAt > 900 && !rboard.anim) {
+    dropRBoard();
+    if (G && G.s && G.s.game === 'carrom') { const b = ensureRBoard(); syncCarromBoard(); b.paused = current !== 'carrom'; }
   }
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(checkBoards, 300); });
@@ -259,6 +275,7 @@ function setDiceFace(v) {
 function renderCards() {
   if (!G) return;
   if (G.s && G.s.game === 'chess') return renderChessCards();
+  if (G.s && G.s.game === 'carrom') return renderCarromCards();
   const s = G.s;
   // Cards sit in the same corner as each player's home (your home is bottom-left).
   const me = s.players.find(p => p.id === pid) || s.players[0];
@@ -330,6 +347,7 @@ let lastTick = 0;
 setInterval(() => {
   checkBoards();
   if (G && current === 'chess' && G.s) { chessTick(); return; }
+  if (G && current === 'carrom' && G.s) { carromTick(); return; }
   if (!G || current !== 'game' || !G.s) { $('tfill').style.width = '0'; return; }
   if (G.busy && board && !board.tweens.length && !diceSpin) { G.stuck = (G.stuck || 0) + 250; if (G.stuck > 6000) { G.busy = false; G.stuck = 0; } } else G.stuck = 0;
   refreshDice();
@@ -373,7 +391,7 @@ function refreshDice() {
 }
 
 function enterGame(mode) {
-  dropCBoard();
+  dropCBoard(); dropRBoard();
   show('game');
   const b = ensureBoard(G.s.game === 'snakes' ? 'snakes' : 'ludo');
   syncBoard(b);
@@ -406,7 +424,7 @@ const SPK_ON = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path
 const SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>';
 function syncSpeaker() {
   const on = settings.sound || settings.music;
-  ['gameSound', 'cSound'].forEach(id => {
+  ['gameSound', 'cSound', 'rSound'].forEach(id => {
     $(id).innerHTML = on ? SPK_ON : SPK_OFF;
     $(id).setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
     $(id).classList.toggle('off', !on);
@@ -417,7 +435,7 @@ $('gameSound').onclick = () => {
   const on = !(settings.sound || settings.music);
   settings.sound = on; settings.music = on;
   Object.assign(prefs, { sound: on, music: on }); store.set('settings', settings);
-  music(on && current !== 'game' && current !== 'chess'); if (on) sfx('click');
+  music(on && !['game', 'chess', 'carrom'].includes(current)); if (on) sfx('click');
   syncSpeaker();
 };
 syncSpeaker();
@@ -513,6 +531,7 @@ function snakeNotes(ev, P) {
 // ---------- Finish ----------
 function finishGame() {
   if (G.s && G.s.game === 'chess') return finishChess();
+  if (G.s && G.s.game === 'carrom') return finishCarrom();
   const s = G.s; renderCards();
   const ranks = s.ranks.slice();
   s.order.forEach(c => { if (!ranks.includes(c)) ranks.push(c); });
@@ -536,6 +555,7 @@ function finishGame() {
 $('winAgain').onclick = () => {
   if (!G) return show('home');
   if (G.mode === 'online') { G.net.send({ t: 'again' }); return; }
+  if (G.s && G.s.game === 'carrom') return startCarrom(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   if (G.s && G.s.game === 'chess') return startChess(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   const again = G.s.players.map(p => ({ id: p.id, name: p.name, color: p.color, kind: p.kind, look: p.look }));
   if (G.s.game === 'snakes') startSnakes(G.mode, again); else startOffline(G.mode, again);
@@ -607,7 +627,7 @@ function myChessColor() {
   return p && p.kind === 'me' ? s.turn : other(s.turn);
 }
 function enterChess() {
-  dropBoard();
+  dropBoard(); dropRBoard();
   show('chess');
   const b = ensureCBoard();
   b.setPosition(G.s.fen); b.clearMarks();
@@ -847,6 +867,294 @@ $('cHelp').addEventListener('change', e => {
   toast(settings.chessHelp ? 'Move help on' : 'Move help off', '#3A2490');
 });
 
+// ---------- Carrom ----------
+let rboard = null;
+const CARROM_SECS = 20;
+const CSIDE = ['White', 'Black'], CDOT = ['#F4EFE6', '#1D1D1D'];
+function dropRBoard() { if (rboard) { rboard.destroy(); rboard = null; } }
+function ensureRBoard() {
+  if (rboard && rboard.dead) rboard = null;
+  if (!rboard) { rboard = new Carrom3D(freshCanvas('rboard')); hookCarromInput(rboard); }
+  else rboard.resize();
+  rboard.paused = false;
+  return rboard;
+}
+function renderCarromSetup() {
+  const bot = setupMode === 'bot';
+  $('setupAsk').textContent = bot ? 'You play' : 'Players';
+  $('setupCount').innerHTML = '';
+  const otherLook = [0, 1, 2, 3].filter(x => x !== ch(profile.look))[0];
+  $('setupNames').innerHTML = `<div class="prow"><span class="dot" style="background:${CDOT[0]}"></span><b style="font-size:18px">${esc(profile.name)}</b><span class="small muted">White · bottom</span></div>` +
+    (bot ? `<div class="prow"><span class="dot" style="background:${CDOT[1]}"></span><b style="font-size:18px">${CHAR_NAME[otherLook]} (computer)</b><span class="small muted">Black · top</span></div>`
+      : `<div class="prow"><span class="dot" style="background:${CDOT[1]}"></span><input class="input" data-pn="1" maxlength="14" value="Player 2"><span class="small muted">Black · top</span></div>`) +
+    `<span class="small muted">${bot ? 'White shoots first.' : 'The board turns around for each player.'} 20 seconds for each shot.</span>`;
+}
+function goCarromSetup() {
+  const otherLook = [0, 1, 2, 3].filter(x => x !== ch(profile.look))[0];
+  const me = { id: pid, name: profile.name, kind: 'me', look: profile.look, tint: profile.color };
+  let them;
+  if (setupMode === 'bot') them = { id: 'bot1', name: CHAR_NAME[otherLook], kind: 'bot', look: otherLook, tint: (profile.color + 2) % 4 };
+  else { const inp = document.querySelector('[data-pn="1"]'); them = { id: 'p1', name: (inp && inp.value.trim()) || 'Player 2', kind: 'me', look: otherLook, tint: (profile.color + 2) % 4 }; }
+  startCarrom(setupMode, [me, them]);
+}
+function startCarrom(mode, players) {
+  G = { mode, game: 'carrom', s: newCarrom(players), busy: false };
+  enterCarrom();
+  nextCarrom();
+}
+// Your side of the board is at the bottom of the screen.
+function carromViewSide() {
+  const s = G.s;
+  if (G.mode === 'local') return s.turn;
+  const i = s.players.findIndex(p => p.id === pid);
+  return i < 0 ? 0 : i;
+}
+function canShoot() {
+  if (!G || !G.s || G.busy || G.s.over) return false;
+  const p = G.s.players[G.s.turn];
+  if (G.mode === 'online') return p.id === pid && !(G.sent && Date.now() - G.sent < 4000);
+  return p.kind === 'me';
+}
+function enterCarrom() {
+  dropBoard(); dropCBoard();
+  show('carrom');
+  ensureRBoard();
+  $('rRoom').textContent = 'Carrom · ' + (G.mode === 'online' ? 'Room ' + G.code : (G.mode === 'bot' ? 'Vs computer' : 'Pass & play'));
+  $('rMic').classList.toggle('hide', G.mode !== 'online');
+  $('rChat').style.visibility = G.mode === 'online' ? 'visible' : 'hidden';
+  $('rHelp').checked = settings.carromHelp;
+  setBadges(); syncMicButtons();
+  G.sx = 0.5;
+  syncCarromBoard();
+  music(false);
+}
+function syncCarromBoard() {
+  const s = G.s, b = rboard; if (!b) return;
+  b.view(carromViewSide(), false);
+  b.setCoins(s.coins);
+  placeCarromStriker();
+  const far = s.players[1 - carromViewSide()];
+  b.setFar(far ? `img/c${ch(far.look)}-${far.tint != null ? far.tint : 3}.png` : null);
+  renderCarromCards(); carromTick();
+}
+// Put the striker on the base line of the player whose turn it is.
+function placeCarromStriker() {
+  const s = G.s; if (!rboard || !s) return;
+  const sp = strikerSpot(s.coins, s.turn, G.sx == null ? 0.5 : G.sx);
+  G.spot = sp;
+  rboard.setStriker(sp.x, sp.y, !s.over);
+  rboard.bob = canShoot();
+  // Slider: the knob follows the striker (mirrored when the board is turned around).
+  const r = $('rSlider').getBoundingClientRect(), f = (sp.x - CLO) / (CHI - CLO);
+  const ff = carromViewSide() === 1 ? 1 - f : f;
+  $('rKnob').style.left = (24 + ff * Math.max(0, r.width - 48)) + 'px';
+  $('rSlider').classList.toggle('off', !canShoot());
+}
+function renderCarromCards() {
+  if (!G || !G.s || current !== 'carrom') return;
+  const s = G.s, bottom = carromViewSide();
+  const card = i => {
+    const p = s.players[i]; if (!p) return '';
+    const lp = G.mode === 'online' ? G.lobby.find(x => x.pid === p.id) : null;
+    const speaking = G.speaking && G.speaking.has(p.id);
+    let st = CSIDE[i] + (p.kind === 'bot' ? ' · Computer' : '');
+    if (lp && lp.left) st = 'Offline';
+    else if (lp && !lp.connected) st = 'Waiting for network...';
+    else if (speaking) st = 'Speaking...';
+    const q = s.queen && s.queen.by === i ? (s.queen.state === 'covered' ? '<i class="q"></i>' : '<i class="q" style="opacity:.45"></i>') : '';
+    const micOn = lp ? lp.mic : false;
+    return `<div data-pid="${p.id}" class="gcard ${s.turn === i && !s.over ? 'turn' : ''} ${lp && (!lp.connected || lp.left) ? 'away' : ''}">
+      ${avatar(p.look, p.tint != null ? p.tint : i ? 3 : 0, speaking ? 'speak' : '')}
+      <div class="info"><span class="nm">${esc(p.name)}${p.id === pid && G.mode !== 'local' ? ' (You)' : ''}</span><span class="st">${st}</span></div>
+      <span class="coins"><i style="background:${CDOT[i]}"></i>${s.got[i]}/9${q}</span>
+      ${G.mode === 'online' && p.id !== pid ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
+    </div>`;
+  };
+  $('rTop').innerHTML = card(1 - bottom);
+  $('rBottom').innerHTML = card(bottom);
+}
+['rTop', 'rBottom'].forEach(id => $(id).addEventListener('click', e => {
+  const b = e.target.closest('[data-deaf]'); if (!b || !G || !G.voice) return;
+  const off = G.voice.toggleDeafen(b.dataset.deaf); toast(off ? 'Muted for you' : 'Unmuted', '#3A2490'); renderCards();
+}));
+function carromTurnLabel() {
+  const s = G.s; if (s.over) return 'Game over';
+  if (G.note && G.note.until > Date.now()) return G.note.text;
+  const p = s.players[s.turn];
+  const left = G.turnEnds ? Math.max(0, Math.ceil((G.turnEnds - Date.now()) / 1000)) : '';
+  const tail = left !== '' ? ` · 0:${String(left).padStart(2, '0')}` : '';
+  if (G.busy) return 'Shooting...';
+  if (G.mode === 'local') return `${p.name}’s shot${tail}`;
+  if (canShoot() || (G.mode === 'online' && p.id === pid)) return 'Your shot' + tail;
+  return p.kind === 'bot' ? `${p.name} is aiming...` : `${p.name}’s shot${tail}`;
+}
+let lastCTick = 0;
+function carromTick() {
+  if (!G || !G.s) return;
+  $('rTurn').textContent = carromTurnLabel();
+  const left = G.turnEnds && !G.s.over && !G.busy ? G.turnEnds - Date.now() : null;
+  const fill = $('rFill');
+  if (left == null) fill.style.width = '0';
+  else {
+    fill.style.width = Math.max(0, Math.min(100, left / (CARROM_SECS * 10))) + '%';
+    fill.classList.toggle('low', left < 5000);
+    const sec = Math.ceil(left / 1000);
+    if (canShoot() && sec <= 5 && sec > 0 && sec !== lastCTick) { lastCTick = sec; sfx('tick'); }
+  }
+  if (G.mode !== 'online' && left != null && left <= 0 && !G.busy) {
+    carromPass(G.s); G.turnEnds = null; G.aim = null; rboard.hideAim();
+    note('Time up, turn skipped'); buzz([80]);
+    rboard.setCoins(G.s.coins); nextCarrom();
+  }
+}
+function nextCarrom() {
+  if (!G || G.mode === 'online') return;
+  const s = G.s;
+  G.sx = 0.5;
+  if (G.mode === 'local' && s.shots > 0) rboard.view(s.turn, true);
+  if (G.mode === 'local') { const far = s.players[1 - s.turn]; rboard.setFar(`img/c${ch(far.look)}-${far.tint}.png`); }
+  placeCarromStriker(); renderCarromCards();
+  if (s.over) { setTimeout(finishCarrom, 900); return; }
+  const p = s.players[s.turn];
+  G.turnEnds = p.kind === 'me' ? Date.now() + CARROM_SECS * 1000 : null;
+  if (p.kind === 'bot') {
+    G.busy = true;
+    setTimeout(() => {
+      if (!G || G.s !== s) return;
+      const shot = carromBot(s, 0.55);
+      G.sx = shot.x; placeCarromStriker();
+      rboard.showAim(s.coins, shot.x, shot.y, shot.dx, shot.dy, shot.power, settings.carromHelp);
+      setTimeout(() => { if (G && G.s === s) { G.busy = false; playCarromShot(shot); } }, 1200);
+    }, 700);
+  } else sfx('turn');
+  carromTick();
+}
+// Aim: slide the striker, then pull back on the board (like a catapult) and let go.
+function hookCarromInput(b) {
+  const c = b.canvas;
+  let down = null;
+  c.addEventListener('pointerdown', e => { if (!canShoot()) return; down = { x: e.clientX, y: e.clientY, aiming: false }; try { c.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } });
+  c.addEventListener('pointermove', e => {
+    if (!down) return;
+    if (!down.aiming && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) down.aiming = true;
+    if (!down.aiming || !canShoot()) return;
+    const p = b.boardPoint(e); if (!p) return;
+    const sp = G.spot; let dx = sp.x - p.x, dy = sp.y - p.y; const L = Math.hypot(dx, dy); if (L < 0.01) return;
+    dx /= L; dy /= L;
+    if (!forwardOk(G.s.turn, dy)) { G.aim = null; b.hideAim(); note('Aim forward, toward the other side'); return; }
+    G.aim = { x: sp.x, y: sp.y, dx, dy, power: Math.min(1, L / 0.32) };
+    b.showAim(G.s.coins, sp.x, sp.y, dx, dy, G.aim.power, settings.carromHelp);
+    G.note = { text: `Power ${Math.round(G.aim.power * 100)}% · let go to shoot`, until: Date.now() + 400 }; $('rTurn').textContent = G.note.text;
+  });
+  const up = () => {
+    if (!down) return; const was = down; down = null;
+    if (!was.aiming) return;
+    const a = G && G.aim; if (G) G.aim = null;
+    if (a && a.power > 0.06 && canShoot()) shootCarrom(a); else b.hideAim();
+  };
+  c.addEventListener('pointerup', up); c.addEventListener('pointercancel', () => { down = null; if (G) G.aim = null; b.hideAim(); });
+}
+function slideCarrom(e) {
+  if (!canShoot()) return;
+  const r = $('rSlider').getBoundingClientRect();
+  let f = Math.min(1, Math.max(0, (e.clientX - r.left - 24) / Math.max(1, r.width - 48)));
+  if (carromViewSide() === 1) f = 1 - f;
+  G.sx = CLO + f * (CHI - CLO); G.aim = null; rboard.hideAim(); placeCarromStriker();
+}
+$('rSlider').addEventListener('pointerdown', e => { try { $('rSlider').setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } $('rSlider')._d = true; slideCarrom(e); });
+$('rSlider').addEventListener('pointermove', e => { if ($('rSlider')._d) slideCarrom(e); });
+$('rSlider').addEventListener('pointerup', () => { $('rSlider')._d = false; });
+$('rHelp').addEventListener('change', e => { settings.carromHelp = e.target.checked; store.set('settings', settings); sfx('click'); toast(settings.carromHelp ? 'Aim help on' : 'Aim help off', '#3A2490'); });
+$('rLeave').onclick = () => leaveGame();
+$('rSound').onclick = () => $('gameSound').onclick();
+$('rChat').onclick = () => { sfx('click'); openChat(); };
+function shootCarrom(shot) {
+  rboard.hideAim(); rboard.bob = false;
+  if (G.mode === 'online') {
+    if (!G.net.send({ t: 'rshot', x: shot.x, dx: shot.dx, dy: shot.dy, power: shot.power, seq: G.s.seq })) { note('No connection, try again in a moment'); G.net.probe(); return; }
+    G.sent = Date.now(); return;
+  }
+  playCarromShot(shot);
+}
+async function playCarromShot(shot) {
+  const s = G.s, before = s.coins.map(c => Object.assign({}, c));
+  G.busy = true; G.turnEnds = null;
+  const res = applyShot(s, shot);
+  if (!res) { G.busy = false; return; }
+  await rboard.playShot(before, shot, sfx);
+  if (!G || G.s !== s) return;
+  G.busy = false;
+  carromAfter(res, s.players[res.foul ? s.turn : s.turn]);
+  nextCarrom();
+}
+function carromAfter(res, P) {
+  rboard.setCoins(G.s.coins);
+  const name = n => n.id === pid && G.mode !== 'local' ? 'You' : n.name;
+  const shooter = P;
+  if (res.foul) { toast(`Foul! ${res.msg ? '' : ''}Striker went in, a coin comes back`, '#E0103A'); buzz([120, 60, 120]); }
+  else if (res.queen === 'pocketed') toast(`Queen! Now pocket your coin to cover her`, '#D9142E');
+  else if (res.queen === 'covered') { toast(`${name(shooter)} covered the Queen!`, '#00A844'); sfx('win'); }
+  else if (res.queen === 'returned') toast('Queen not covered: back to the centre', '#3A2490');
+  else if (res.msg) toast(res.msg, '#3A2490');
+  else if (res.again) note('Pocketed! Shoot again');
+  if (res.potted.length && !res.foul) buzz([30, 20, 30]);
+  renderCarromCards();
+}
+// Online
+function onCarromState(m) {
+  G.s = m.s; G.busy = false; G.sent = 0;
+  G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  G.turnEnds = m.turnEnds || null;
+  if (m.s.over && m.t === 'sync') { finishCarrom(); return; }
+  if (current !== 'carrom') enterCarrom(); else syncCarromBoard();
+  if (m.t === 'start') sfx('turn');
+}
+async function onCarromShot(m) {
+  G.busy = true; G.turnEnds = null;
+  const before = G.s.coins.map(c => Object.assign({}, c)), shooter = G.s.players[G.s.turn];
+  G.sx = m.shot.x;
+  if (current === 'carrom' && rboard) {
+    if (shooter.id !== pid) { rboard.setStriker(m.shot.x, m.shot.y); rboard.showAim(before, m.shot.x, m.shot.y, m.shot.dx, m.shot.dy, m.shot.power, false); await new Promise(r => setTimeout(r, 450)); }
+    await rboard.playShot(before, m.shot, sfx);
+  }
+  G.s = m.s; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  G.turnEnds = m.turnEnds; G.busy = false; G.sent = 0;
+  if (current === 'carrom') { carromAfter(m.res, shooter); G.sx = 0.5; placeCarromStriker(); }
+  if (G.s.over) setTimeout(finishCarrom, 1000);
+  else if (G.s.players[G.s.turn].id === pid) sfx('turn');
+}
+function onCarromPassed(m) {
+  G.s = m.s; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  G.turnEnds = m.turnEnds; G.sx = 0.5;
+  if (m.reason === 'timeout') note('Time up, turn skipped');
+  if (rboard) { rboard.hideAim(); rboard.setCoins(G.s.coins); placeCarromStriker(); }
+  renderCarromCards();
+  if (G.s.over) setTimeout(finishCarrom, 700);
+  else if (G.s.players[G.s.turn].id === pid) sfx('turn');
+}
+function onCarromEnd(m) {
+  G.s = m.s; G.turnEnds = null; if (rboard) rboard.hideAim();
+  if (m.s.reason === 'left') note('Player left the game');
+  renderCarromCards(); setTimeout(finishCarrom, 900);
+}
+function finishCarrom() {
+  if (!G || !G.s) return;
+  const s = G.s, W = s.players[s.winner];
+  const meI = G.mode === 'local' ? -1 : s.players.findIndex(p => p.id === pid || (G.mode === 'bot' && p.kind === 'me'));
+  const iWon = meI === s.winner;
+  $('winTitle').textContent = iWon ? 'You won!' : `${W.name} won!`;
+  $('winSub').textContent = s.reason === 'left' ? 'The other player left the game' : `${iWon ? 'You' : W.name} pocketed all 9 coins first (${s.got[0]} - ${s.got[1]})`;
+  $('podium').innerHTML = `<div class="col center gap10"><div>${body(W.look, W.tint != null ? W.tint : 0, 150)}</div><b>${esc(W.name)}</b><span class="small muted">${CSIDE[s.winner]} coins</span></div>`;
+  $('winRest').innerHTML = '';
+  $('trophy').style.display = '';
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
+  $('winAgain').style.display = G.mode === 'online' ? (G.host ? 'flex' : 'none') : 'flex';
+  if (meI >= 0 && !iWon) sfx('capture'); else sfx('win');
+  buzz([60, 40, 60, 40, 120]);
+  show('win');
+}
+
 // ---------- Online ----------
 function netReady() {
   if (Net.serverBase()) return true;
@@ -886,7 +1194,7 @@ function openRoom(code) {
   });
   G.voice = new Voice((to, data) => G && G.net && G.net.send({ t: 'rtc', to, data }), (who, on) => { if (!G) return; if (on) G.speaking.add(who); else G.speaking.delete(who); if (current === 'lobby') renderLobby(); else renderCards(); });
   G.voice.setListen(settings.listen);
-  G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (current === 'game' || current === 'chess') renderCards(); };
+  G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (['game', 'chess', 'carrom'].includes(current)) renderCards(); };
   G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME });
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
@@ -921,9 +1229,9 @@ function endOnline() {
 function syncMicButtons() {
   if (!G || !G.voice) return;
   const on = G.voice.hasMic() && !G.voice.muted;
-  ['lobbyMic', 'gameMic', 'cMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
+  ['lobbyMic', 'gameMic', 'cMic', 'rMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
 }
-['lobbyMic', 'gameMic', 'cMic'].forEach(id => $(id).onclick = async () => {
+['lobbyMic', 'gameMic', 'cMic', 'rMic'].forEach(id => $(id).onclick = async () => {
   if (!G || !G.voice) return;
   if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
   else G.voice.setMuted(!G.voice.muted);
@@ -934,7 +1242,7 @@ function syncMicButtons() {
 
 function renderLobby() {
   if (!G) return;
-  const L = G.lobby, max = G.game === 'chess' ? 2 : 4;
+  const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : 4;
   $('lobbyTitle').textContent = GAME_NAME[G.game || 'ludo'] + ' room';
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
@@ -985,7 +1293,7 @@ async function onNet(m) {
       if (current === 'win') $('winAgain').style.display = G.host ? 'flex' : 'none';
       G.voice.sync(live);
       if (current === 'lobby') renderLobby();
-      if (current === 'game' || current === 'chess') renderCards();
+      if (['game', 'chess', 'carrom'].includes(current)) renderCards();
       break;
     }
     case 'err':
@@ -995,6 +1303,7 @@ async function onNet(m) {
     case 'start':
     case 'sync':
       if (m.s && m.s.game === 'chess') { onChessState(m); break; }
+      if (m.s && m.s.game === 'carrom') { onCarromState(m); break; }
       G.s = m.s; G.turnEnds = m.turnEnds || null; G.busy = false;
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
@@ -1030,7 +1339,10 @@ async function onNet(m) {
       else if (playerOf(G.s, G.s.turn).id === pid) sfx('turn');
       break;
     }
+    case 'rshot': await onCarromShot(m); break;
+    case 'rend': onCarromEnd(m); break;
     case 'passed':
+      if (G.s && G.s.game === 'carrom') { onCarromPassed(m); break; }
       if (m.reason !== 'left-other') { board.clearHighlight(); board.diceIdle(); }
       G.s = m.s; G.turnEnds = m.turnEnds; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.reason === 'timeout') note('Time up, turn skipped');
@@ -1105,13 +1417,13 @@ function colorOf(id) {
 }
 function setBadges() {
   const n = (G && G.unread) || 0;
-  ['chatBadge', 'lobbyBadge', 'cBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
+  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
 }
 function onChat(m) {
   G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();
   if ($('chat').classList.contains('show')) renderChat();
   else if (m.from !== pid) { G.unread = (G.unread || 0) + 1; setBadges(); sfx('pop'); }
-  if (current === 'game' || current === 'chess') sayBubble(m);
+  if (['game', 'chess', 'carrom'].includes(current)) sayBubble(m);
 }
 function sayBubble(m) {
   const card = document.querySelector(`.gcard[data-pid="${m.from}"]`);
@@ -1161,6 +1473,13 @@ $('setRules').onclick = () => {
   <li>Land at the bottom of a ladder: climb up. Land on a snake’s head: slide down to its tail.</li>
   <li>A 6 gives you another roll.</li>
   <li>You need the exact number to land on 100. First to 100 wins!</li></ul>
+  <h3>How to play Carrom</h3><ul>
+  <li>Slide the striker along your base line, then pull back on the board and let go to shoot.</li>
+  <li>The arrow shows your shot. With Aim help on, a yellow arrow shows where the coin you hit will go.</li>
+  <li>Pocket your own coins (white or black). Pocket one and you shoot again.</li>
+  <li>The red Queen: after pocketing her, pocket one of your coins in your next shot to keep her (cover). If you don’t, she goes back to the centre.</li>
+  <li>Striker in a pocket is a foul: one of your coins comes back.</li>
+  <li>First to pocket all 9 coins (after the Queen is covered) wins. 20 seconds for each shot.</li></ul>
   <h3>How to play Chess</h3><ul>
   <li>White moves first, then you take turns.</li>
   <li>Tap a piece to pick it. With Move help on, green dots show where it can go and red rings show what it can capture.</li>
@@ -1176,7 +1495,7 @@ window.ldBack = () => {
   if ($('modal').classList.contains('show')) { closeModal(); return true; }
   if ($('chat').classList.contains('show')) { closeChat(); return true; }
   if ($('cHint').classList.contains('show')) { hideHint(); if (cboard) cboard.clearMarks(); if (G) G.sel = null; return true; }
-  if (current === 'game' || current === 'chess') { leaveGame(); return true; }
+  if (['game', 'chess', 'carrom'].includes(current)) { leaveGame(); return true; }
   if (current === 'lobby') { $('lobbyBack').onclick(); return true; }
   if (current === 'win') { $('winHome').onclick(); return true; }
   if (current === 'profile' && !profile) return false;
@@ -1184,7 +1503,7 @@ window.ldBack = () => {
   if (current !== 'home' && current !== 'splash') { show('home'); return true; }
   return false;
 };
-document.addEventListener('visibilitychange', () => music(!document.hidden && current !== 'game' && current !== 'chess'));
+document.addEventListener('visibilitychange', () => music(!document.hidden && !['game', 'chess', 'carrom'].includes(current)));
 
-window.__ld = () => G; window.__board = () => board; window.__cboard = () => cboard;
+window.__ld = () => G; window.__board = () => board; window.__cboard = () => cboard; window.__rboard = () => rboard;
 splash();

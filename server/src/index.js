@@ -2,6 +2,8 @@
 import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf, markLeft } from '../../app/src/main/assets/www/js/rules.js';
 import { newChess, chessMove, chessTimeout, chessLeft, chessPlayer } from '../../app/src/main/assets/www/js/chessrules.js';
 import { newSnakes, snakeRoll, snakePass } from '../../app/src/main/assets/www/js/snakes.js';
+import { newCarrom, applyShot, carromPass, carromLeft, cleanShot } from '../../app/src/main/assets/www/js/carrom.js';
+const CARROM_MS = 20000;
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -11,7 +13,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes'], v: 4 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom'], v: 5 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/new' && req.method === 'POST') {
       for (let i = 0; i < 6; i++) {
@@ -80,6 +82,7 @@ export class Room {
       Object.assign(this, { players: r.players || [], host: r.host, s: r.s, claimed: r.claimed, code: r.code, moves: r.moves || [], chat: r.chat || [], game: r.game || 'ludo', chessRound: r.chessRound || 0 });
       this.players.forEach(p => { p.connected = false; });
       if (this.s && !this.s.over) { if (this.s.game === 'chess') this.armChess(); else this.armTurn(); }
+      this.carromRound = r.carromRound || 0;
       this.armEmpty();
     } catch (e) { /* start fresh */ }
   }
@@ -87,7 +90,7 @@ export class Room {
     if (!this.state || !this.state.storage) return;
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
-      const snap = { players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, tint: p.tint, left: !!p.left, mic: false })), host: this.host, s: this.s, claimed: this.claimed, code: this.code, moves: this.moves, chat: this.chat.slice(-30), game: this.game, chessRound: this.chessRound || 0 };
+      const snap = { players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, tint: p.tint, left: !!p.left, mic: false })), host: this.host, s: this.s, claimed: this.claimed, code: this.code, moves: this.moves, chat: this.chat.slice(-30), game: this.game, chessRound: this.chessRound || 0, carromRound: this.carromRound || 0 };
       this.state.storage.put('room', snap).catch(() => {});
     }, 200);
   }
@@ -135,6 +138,7 @@ export class Room {
       case 'roll': if (this.s && this.s.game === 'snakes') this.doSnakeRoll(me); else this.doRoll(me); break;
       case 'move': this.doMove(me, m.token); break;
       case 'cmove': this.doChessMove(ws, me, m); break;
+      case 'rshot': this.doCarromShot(ws, me, m); break;
       case 'chat': {
         const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
         if (!text) break;
@@ -159,8 +163,8 @@ export class Room {
       if (this.s) return this.send(ws, { t: 'err', msg: 'This game has already started.', fatal: true });
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
       // The person who creates the room picks the game. Everyone who joins plays that game.
-      if (!this.players.length) this.game = ['chess', 'snakes'].includes(m.game) ? m.game : 'ludo';
-      const max = this.game === 'chess' ? 2 : 4;
+      if (!this.players.length) this.game = ['chess', 'snakes', 'carrom'].includes(m.game) ? m.game : 'ludo';
+      const max = this.game === 'chess' || this.game === 'carrom' ? 2 : 4;
       if (this.players.length >= max) return this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
       p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false };
       this.players.push(p);
@@ -175,6 +179,7 @@ export class Room {
     this.lobby();
     this.send(ws, { t: 'chatlog', list: this.chat });
     if (this.s && this.s.game === 'chess') this.send(ws, { t: 'sync', s: this.s, left: this.chessLeftMs() });
+    else if (this.s && this.s.game === 'carrom') this.send(ws, { t: 'sync', s: this.s, turnEnds: this.turnEnds });
     else if (this.s) this.send(ws, { t: 'sync', s: this.s, moves: this.s.rolled ? this.moves : [], turnEnds: this.turnEnds });
   }
 
@@ -185,7 +190,11 @@ export class Room {
       const p = this.players.find(x => x.pid === pid);
       if (p) { p.connected = false; p.left = true; }
       const gp = this.s.players.find(x => x.id === pid);
-      if (gp && !this.s.over && this.s.game === 'chess') {
+      const ci = this.s.game === 'carrom' ? this.s.players.findIndex(x => x.id === pid) : -1;
+      if (ci >= 0 && !this.s.over) {
+        carromLeft(this.s, ci); this.clearTurn();
+        this.all({ t: 'rend', s: this.s });
+      } else if (gp && !this.s.over && this.s.game === 'chess') {
         chessLeft(this.s, gp.color); this.clearTurn();
         this.all({ t: 'cend', s: this.s });
       } else if (gp && !this.s.over) {
@@ -244,6 +253,16 @@ export class Room {
       this.lobby();
       return;
     }
+    if (this.game === 'carrom') {
+      // The host plays white (bottom) in the first game; sides swap in every new game.
+      this.carromRound = (this.carromRound || 0) + 1;
+      const two = ready.slice(0, 2); if (this.carromRound % 2 === 0) two.reverse();
+      this.s = newCarrom(two.map(p => ({ id: p.pid, name: p.name, kind: 'remote', look: p.look, tint: p.tint })));
+      this.armTurn(CARROM_MS);
+      this.all({ t: 'start', s: this.s, turnEnds: this.turnEnds });
+      this.lobby();
+      return;
+    }
     const cols = seatColors(ready.length);
     const list = ready.map((p, i) => ({ id: p.pid, name: p.name, color: cols[i], kind: 'remote', look: p.look }));
     this.s = this.game === 'snakes' ? newSnakes(list) : newGame(list);
@@ -254,7 +273,19 @@ export class Room {
     this.checkAway();
   }
 
-  current() { return this.s ? playerOf(this.s, this.s.turn) : null; }
+  current() { return this.s ? (this.s.game === 'carrom' ? this.s.players[this.s.turn] : playerOf(this.s, this.s.turn)) : null; }
+
+  // ---------- Carrom ----------
+  // The server plays every shot with the same physics as the phones and sends the result.
+  doCarromShot(ws, pid, m) {
+    const s = this.s; if (!s || s.game !== 'carrom' || s.over) return;
+    if (this.current().id !== pid) return;
+    if (m.seq != null && Number(m.seq) !== s.seq) return this.send(ws, { t: 'sync', s, turnEnds: this.turnEnds });
+    const shot = cleanShot(s, m); if (!shot) return;
+    const res = applyShot(s, shot); if (!res) return;
+    if (s.over) this.clearTurn(); else this.armTurn(CARROM_MS + Math.round(res.steps / 240 * 1000) + 1500);
+    this.all({ t: 'rshot', shot, s, res, turnEnds: this.turnEnds });
+  }
 
   // ---------- Chess ----------
   // Each side has its own clock. Only the clock of the player to move runs.
@@ -282,16 +313,17 @@ export class Room {
 
   clearTurn() { if (this.turnTimer) clearTimeout(this.turnTimer); this.turnTimer = null; this.turnEnds = null; }
 
-  armTurn() {
+  armTurn(ms) {
     this.clearTurn();
     if (!this.s || this.s.over) return;
-    this.turnEnds = Date.now() + TURN_MS;
+    ms = ms || (this.s.game === 'carrom' ? CARROM_MS : TURN_MS);
+    this.turnEnds = Date.now() + ms;
     const seq = this.s.seq;
-    this.turnTimer = setTimeout(() => { if (this.s && this.s.seq === seq && !this.s.over) this.skip('timeout'); }, TURN_MS);
+    this.turnTimer = setTimeout(() => { if (this.s && this.s.seq === seq && !this.s.over) this.skip('timeout'); }, ms);
   }
 
   skip(reason) {
-    if (this.s.game === 'snakes') snakePass(this.s); else passTurn(this.s);
+    if (this.s.game === 'snakes') snakePass(this.s); else if (this.s.game === 'carrom') carromPass(this.s); else passTurn(this.s);
     this.moves = [];
     this.armTurn();
     this.all({ t: 'passed', s: this.s, reason, turnEnds: this.turnEnds });

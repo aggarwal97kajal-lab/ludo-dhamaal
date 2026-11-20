@@ -275,3 +275,22 @@ img.body { display: block; width: auto; pointer-events: none; }
 .gamecard .t { font-size: 30px; }
 .biglogo { width: 150px; height: 150px; border-radius: 50%; box-shadow: 0 10px 40px rgba(255, 194, 26, .35); animation: logopop 2.4s ease-in-out infinite; }
 @keyframes logopop { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.04); } }
+/* Carrom */
+#rboard { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#carrom .rbar { flex-direction: column; align-items: stretch; gap: 4px; padding-top: 8px; padding-bottom: 10px; }
+#carrom .rrow { display: flex; align-items: center; gap: 10px; }
+#carrom .rrow.small { justify-content: space-between; font-size: 12px; }
+#carrom .rrow.small .helpsw { margin-top: 0; flex-shrink: 0; }
+#carrom .cards.bottom { bottom: calc(196px + env(safe-area-inset-bottom)); }
+#carrom .tbar { width: 160px; }
+.rslider { position: relative; height: 46px; touch-action: none; }
+.rslider .track { position: absolute; left: 24px; right: 24px; top: 19px; height: 8px; border-radius: 8px; background: var(--line2); }
+.rslider .knob { position: absolute; top: 3px; width: 40px; height: 40px; margin-left: -20px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff, #e8e4ff 45%, #9fa8ff 75%, #3d5afe); border: 3px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,.4); }
+.rslider.off { opacity: .35; }
+.gcard .coins { display: flex; gap: 3px; align-items: center; margin-left: auto; font-weight: 800; color: #fff; font-size: 15px; }
+.gcard .coins i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; display: inline-block; }
+.gcard .coins .q { background: #d9142e; }
+.gamecard.carrom { background: linear-gradient(135deg, #d97706, #7c2d12); border-color: #fdba74; color: #fff; }
+.gamecard.carrom .play { background: #fff; color: #7c2d12; }
+.cboardart { width: 96px; height: 96px; border-radius: 14px; background: #f3d9a4; border: 7px solid #5a2a10; position: relative; margin: 0 6px 12px 0; box-shadow: 0 6px 0 rgba(0,0,0,.25); }
+.cboardart i { position: absolute; width: 16px; height: 16px; border-radius: 50%; }

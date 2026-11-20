@@ -63,4 +63,24 @@ room.clearTurn();
   check(r.s.seq === 1 && r.s.pos[0] > 0, 'rolled and moved');
   r.clearTurn();
 }
+// Carrom online
+{
+  const r = new Room({}, {}); r.claimed = true; r.code = 'CARRM';
+  const a = mk('a'), b = mk('b'), c = mk('c');
+  r.onMsg(a, JSON.stringify({ t: 'hello', pid: 'pa', name: 'A', game: 'carrom' }));
+  r.onMsg(b, JSON.stringify({ t: 'hello', pid: 'pb', name: 'B' }));
+  r.onMsg(c, JSON.stringify({ t: 'hello', pid: 'pc', name: 'C' }));
+  check(r.players.length === 2, 'carrom room holds 2');
+  r.onMsg(a, JSON.stringify({ t: 'start' }));
+  check(r.s && r.s.game === 'carrom' && r.s.players[0].id === 'pa', 'carrom started, host white');
+  r.onMsg(b, JSON.stringify({ t: 'rshot', x: 0.5, dx: 0, dy: 1, power: 1, seq: 0 }));
+  check(r.s.seq === 0, 'not your turn: no shot');
+  r.onMsg(a, JSON.stringify({ t: 'rshot', x: 0.5, dx: 0, dy: 1, power: 1, seq: 0 }));
+  check(r.s.seq === 0, 'backward shot refused');
+  r.onMsg(a, JSON.stringify({ t: 'rshot', x: 0.5, dx: 0, dy: -1, power: 1, seq: 0 }));
+  check(r.s.seq === 1 && b.got.some(m => m.t === 'rshot'), 'shot played and sent to everyone');
+  r.onMsg(b, JSON.stringify({ t: 'leave' }));
+  check(r.s.over && r.s.winner === 0, 'leaver loses');
+  r.clearTurn();
+}
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);
