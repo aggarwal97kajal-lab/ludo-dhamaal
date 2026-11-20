@@ -27,3 +27,5 @@ Then put the Worker address (like `https://ludo-dhamaal.NAME.workers.dev`) in `s
 ## Test
 
 `cd test && node rules.test.mjs && node server.test.mjs` plays 300 random games and a full online game through the room server.
+
+The Cloudflare server needs two runtime secrets for voice relay: TURN_KEY_ID and TURN_KEY_API_TOKEN (Cloudflare Realtime TURN key).
