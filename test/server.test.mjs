@@ -83,4 +83,29 @@ room.clearTurn();
   check(r.s.over && r.s.winner === 0, 'leaver loses');
   r.clearTurn();
 }
+// Rang Patta online: secret hands, server checks every card, a full game finishes
+{
+  const { pattaBot } = await import('../app/src/main/assets/www/js/patta.js');
+  const r = new Room({}, {}); r.claimed = true; r.code = 'PATTA';
+  const ws = ['a', 'b', 'c'].map(mk);
+  ws.forEach((w, i) => r.onMsg(w, JSON.stringify({ t: 'hello', pid: 'q' + i, name: 'Q' + i, game: 'patta' })));
+  r.onMsg(ws[0], JSON.stringify({ t: 'start' }));
+  check(r.s && r.s.game === 'patta' && r.s.players.length === 3, 'patta started');
+  const st = ws[1].got.filter(m => m.t === 'start').pop();
+  const me = st.s.players.findIndex(p => p.id === 'q1');
+  check(st.s.hands[me].length === 7 && st.s.hands.filter((h, k) => k !== me).every(h => h.length === 0), 'only own hand is sent');
+  check(typeof st.s.draw === 'number', 'draw pile is just a number');
+  let guard = 0;
+  while (!r.s.over && guard++ < 4000) {
+    const i = r.s.turn, w = ws[Number(r.s.players[i].id.slice(1))];
+    const b = pattaBot(r.s, i);
+    if (r.s.hands[i].length <= 2) r.onMsg(w, JSON.stringify({ t: 'pek' }));
+    if (b.draw) r.onMsg(w, JSON.stringify({ t: 'pdraw', seq: r.s.seq }));
+    else if (b.pass) r.onMsg(w, JSON.stringify({ t: 'ppass', seq: r.s.seq }));
+    else r.onMsg(w, JSON.stringify({ t: 'pplay', card: b.card, color: b.color, seq: r.s.seq }));
+    if (guard % 40 === 0) r.skip('timeout');
+  }
+  check(r.s.over, 'patta game finished');
+  r.clearTurn();
+}
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);

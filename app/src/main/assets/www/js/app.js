@@ -10,6 +10,7 @@ import { Carrom3D } from './carrom3d.js';
 import { newCarrom, applyShot, carromBot, carromPass, strikerSpot, forwardOk, NEED as CNEED, BASE as CBASE, LO as CLO, HI as CHI } from './carrom.js';
 import { newSnakes, snakeRoll, snakePass, GOAL } from './snakes.js';
 import { Chess } from './chesslib.js';
+import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaBot, playable as pattaPlayable, canPlay as pattaCanPlay, top as pattaTop, label as pattaLabel, ranking as pattaRanking, COLORS as PCOLORS } from './patta.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
 
 const $ = id => document.getElementById(id);
@@ -276,7 +277,9 @@ $('hFilters').addEventListener('click', e => { const b = e.target.closest('[data
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
-const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom' };
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta' };
+// Screens where a game is being played (music off, back button asks to leave, chat bubbles).
+const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta'];
 const ARCH = '<svg class="frame" viewBox="0 0 176 228" preserveAspectRatio="none"><use href="#archOuter" fill="none" stroke="url(#g)" stroke-width="7"/><use href="#archInner" fill="none" stroke="#ffe17a" stroke-width="1.2" opacity=".8"/><circle cx="88" cy="7" r="5" fill="GEM" stroke="#ffe17a" stroke-width="2"/></svg>';
 function renderHome() {
   $('homeAv').innerHTML = myPhoto ? `<div class="in photo" style="background:${UI[profile.color]}"><img src="${myPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
@@ -292,13 +295,16 @@ function renderHome() {
     }
     $('homeLights').innerHTML = h;
   }
-  const arch = (g, gem, count, art, name, sub, cls) => `<button class="arch ${g}" data-game="${g}"><div class="inner"></div>${ARCH.replace('GEM', gem)}<span class="count">${count}</span><div class="art">${art}</div><div class="name"><b class="${cls || ''}">${name}</b><span>${sub}</span></div></button>`;
+  const arch = (g, gem, count, art, name, sub, cls, isNew, off) => `<button class="arch ${g}" ${off ? 'disabled' : `data-game="${g}"`}>${isNew ? '<span class="new">NEW</span>' : ''}<div class="inner"></div>${ARCH.replace('GEM', gem)}${count ? `<span class="count">${count}</span>` : ''}<div class="art">${art}</div><div class="name"><b class="${cls || ''}">${name}</b><span>${sub}</span></div></button>`;
   const pk = (l, t) => `<i style="${l};background:${t}"></i>`;
+  const mc = (c, v, r) => pcardHtml({ c, v }, '', `style="transform:rotate(${r}deg)"`);
   $('games').innerHTML =
-    arch('ludo', '#e5196f', '2-4 players', body(0, 0, 138) + body(3, 3, 148), 'Ludo', 'Walk your team home') +
-    arch('chess', '#0fb5a5', '2 players', '<span class="glyph w">&#9819;</span><span class="glyph g">&#9822;</span>', 'Chess', 'With move help') +
-    arch('carrom', '#e5196f', '2 players', `<div class="cboard3">${pk('left:2px;top:2px', '#120a06')}${pk('right:2px;top:2px', '#120a06')}${pk('left:2px;bottom:2px', '#120a06')}${pk('right:2px;bottom:2px', '#120a06')}${pk('left:39px;top:39px;box-shadow:0 2px 0 #6a0010', '#d9142e')}${pk('left:22px;top:41px;box-shadow:0 2px 0 #9b8a5a', '#f6efdc')}${pk('left:57px;top:35px;box-shadow:0 2px 0 #000', '#1f1f1f')}<i style="left:42px;top:60px;width:20px;height:20px;background:#eef;border:3px solid #3d5afe"></i></div>`, 'Carrom', 'Flick and pocket') +
-    arch('snakes', '#0fb5a5', '2-4 players', body(2, 2, 146), 'Snakes &amp; Ladders', 'First to 100 wins', 'long');
+    arch('ludo', '#e5196f', '2-4', `<img class="body" src="img/c0-0.png" alt="" style="height:100px;margin-right:-22px">` + body(3, 3, 106), 'Ludo', 'Walk your team home') +
+    arch('chess', '#0fb5a5', '2', '<span class="glyph w">&#9819;</span><span class="glyph g">&#9822;</span>', 'Chess', 'With move help') +
+    arch('carrom', '#e5196f', '2', `<div class="cboard3">${pk('left:1px;top:1px', '#120a06')}${pk('right:1px;top:1px', '#120a06')}${pk('left:1px;bottom:1px', '#120a06')}${pk('right:1px;bottom:1px', '#120a06')}${pk('left:28px;top:28px', '#d9142e')}${pk('left:15px;top:30px', '#f6efdc')}${pk('left:41px;top:25px', '#1f1f1f')}<i style="left:30px;top:44px;width:15px;height:15px;background:#eef;border:2px solid #3d5afe"></i></div>`, 'Carrom', '3 ways to play') +
+    arch('snakes', '#0fb5a5', '2-4', body(2, 2, 104), 'Snakes &amp; Ladders', 'First to 100', 'long') +
+    arch('patta', '#0fb5a5', '2-4', `<div class="minicards">${mc(0, 7, -16)}${mc(3, 'rev', -2)}${mc(2, 'd2', 14)}</div>`, 'Rang Patta', 'Colour &amp; number', '', true) +
+    arch('soon', '#ffd34d', '', '<div style="font-size:40px;margin-bottom:22px">✨</div>', 'Coming soon', 'Sudoku, Arrows, Draw', 'long', false, true);
   music(true);
 }
 $('homeAv').onclick = () => { sfx('click'); openProfile(); };
@@ -310,7 +316,7 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = GAME === 'carrom' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
@@ -402,7 +408,8 @@ $('setupGo').onclick = () => {
     const inp = document.querySelector(`[data-pn="${i}"]`);
     return { id: 'p' + i, name: (inp && inp.value.trim()) || 'Player ' + (i + 1), color: c, kind: 'me', look: others[i - 1] };
   });
-  if (GAME === 'snakes') startSnakes(setupMode, players); else startOffline(setupMode, players);
+  if (GAME === 'patta') startPatta(setupMode, players.map(p => Object.assign(p, { tint: p.color })));
+  else if (GAME === 'snakes') startSnakes(setupMode, players); else startOffline(setupMode, players);
 };
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -477,6 +484,7 @@ function setDiceFace(v) {
 
 function renderCards() {
   if (!G) return;
+  if (G.s && G.s.game === 'patta') return renderPatta();
   if (G.s && G.s.game === 'chess') return renderChessCards();
   if (G.s && G.s.game === 'carrom') return renderCarromCards();
   const s = G.s;
@@ -551,6 +559,7 @@ setInterval(() => {
   checkBoards();
   if (G && current === 'chess' && G.s) { chessTick(); ringSync('chess', 'cFill'); return; }
   if (G && current === 'carrom' && G.s) { carromTick(); ringSync('carrom', 'rFill'); return; }
+  if (G && current === 'patta' && G.s) { pattaTick(); ringSync('patta', 'pFill'); return; }
   if (!G || current !== 'game' || !G.s) { $('tfill').style.width = '0'; return; }
   if (G.busy && board && !board.tweens.length && !diceSpin) { G.stuck = (G.stuck || 0) + 250; if (G.stuck > 6000) { G.busy = false; G.stuck = 0; } } else G.stuck = 0;
   refreshDice();
@@ -569,7 +578,7 @@ setInterval(() => {
 }, 250);
 // The gold ring around the playing person's medallion shows the time left (same as the bar).
 function ringSync(screen, fillId) {
-  const av = document.querySelector(`#${screen} .gcard.turn .av`); if (!av) return;
+  const av = document.querySelector(`#${screen} .turn .av`); if (!av) return;
   const f = $(fillId), w = parseFloat(f.style.width);
   const t = isNaN(w) || w <= 0 ? 1 : w / 100;
   av.style.setProperty('--t', t.toFixed(3));
@@ -636,7 +645,7 @@ const SPK_ON = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path
 const SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>';
 function syncSpeaker() {
   const on = settings.sound || settings.music;
-  ['gameSound', 'cSound', 'rSound'].forEach(id => {
+  ['gameSound', 'cSound', 'rSound', 'pSound'].forEach(id => {
     $(id).innerHTML = on ? SPK_ON : SPK_OFF;
     $(id).setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
     $(id).classList.toggle('off', !on);
@@ -647,7 +656,7 @@ $('gameSound').onclick = () => {
   const on = !(settings.sound || settings.music);
   settings.sound = on; settings.music = on;
   Object.assign(prefs, { sound: on, music: on }); store.set('settings', settings);
-  music(on && !['game', 'chess', 'carrom'].includes(current)); if (on) sfx('click');
+  music(on && !PLAY_SCREENS.includes(current)); if (on) sfx('click');
   syncSpeaker();
 };
 syncSpeaker();
@@ -744,6 +753,7 @@ function snakeNotes(ev, P) {
 function finishGame() {
   if (G.s && G.s.game === 'chess') return finishChess();
   if (G.s && G.s.game === 'carrom') return finishCarrom();
+  if (G.s && G.s.game === 'patta') return finishPatta();
   const s = G.s; renderCards();
   const ranks = s.ranks.slice();
   s.order.forEach(c => { if (!ranks.includes(c)) ranks.push(c); });
@@ -771,6 +781,7 @@ $('winAgain').onclick = () => {
   if (!G) return show('home');
   if (G.mode === 'online') { G.net.send({ t: 'again' }); return; }
   if (G.s && G.s.game === 'carrom') return startCarrom(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })), G.s.mode);
+  if (G.s && G.s.game === 'patta') return startPatta(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   if (G.s && G.s.game === 'chess') return startChess(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   const again = G.s.players.map(p => ({ id: p.id, name: p.name, color: p.color, kind: p.kind, look: p.look }));
   if (G.s.game === 'snakes') startSnakes(G.mode, again); else startOffline(G.mode, again);
@@ -1425,6 +1436,300 @@ function finishCarrom() {
   show('win'); startDance();
 }
 
+// ---------- Rang Patta (colour & number cards) ----------
+const PATTA_SECS = 20;
+const JEWEL = ['ruby', 'emer', 'saph', 'topaz'];
+const JEWEL_HEX = ['#c3093f', '#059669', '#1460d6', '#e6a800'];
+function pcardHtml(c, cls, attrs) {
+  const wild = c.v === 'wild' || c.v === 'w4';
+  const col = wild && c.c === -1 ? 'wild' : JEWEL[c.c];
+  const lb = pattaLabel(c);
+  return `<span class="pc ${cls || ''}" ${attrs || ''}><span class="f ${col}${wild && c.c >= 0 ? ' wildset' : ''}"><i class="ca">${lb}</i><b class="${wild && c.c === -1 ? '' : JEWEL[c.c] + '-t'}">${lb}</b><i class="cb">${lb}</i></span></span>`;
+}
+// Which seat's cards are shown at the bottom.
+function pattaMe() {
+  const s = G.s;
+  if (G.mode === 'online') return s.players.findIndex(p => p.id === pid);
+  if (G.mode === 'local') return G.shown != null ? G.shown : s.turn;
+  return s.players.findIndex(p => p.kind === 'me');
+}
+const pIsMine = () => { const s = G.s, me = pattaMe(); return !s.over && s.turn === me && (G.mode !== 'local' || G.shown === s.turn); };
+function startPatta(mode, players) {
+  G = { mode, game: 'patta', s: newPatta(players), busy: false };
+  G.shown = mode === 'local' ? null : undefined;
+  enterPatta();
+  setTimeout(nextPatta, 500);
+}
+function enterPatta() {
+  dropBoard(); dropCBoard(); dropRBoard();
+  show('patta');
+  $('pRoom').textContent = 'Rang Patta · ' + (G.mode === 'online' ? 'Room ' + G.code : G.mode === 'bot' ? 'Vs computer' : 'Pass & play');
+  $('pMic').classList.toggle('hide', G.mode !== 'online');
+  $('pChat').style.visibility = G.mode === 'online' ? 'visible' : 'hidden';
+  setBadges(); syncMicButtons(); syncSpeaker();
+  renderPatta(); music(false);
+}
+// Seats around the table, counted from the player at the bottom.
+function pattaSeats() {
+  const s = G.s, me = Math.max(0, pattaMe()), n = s.players.length, out = [];
+  for (let k = 1; k < n; k++) out.push((me + k) % n);
+  const spots = n === 2 ? ['top'] : n === 3 ? ['left', 'right'] : ['left', 'top', 'right'];
+  return out.map((i, k) => [i, spots[k]]);
+}
+function renderPatta() {
+  if (!G || !G.s || G.s.game !== 'patta' || current !== 'patta') return;
+  const s = G.s, me = pattaMe(), counts = s.counts || s.hands.map(h => h.length);
+  const tint = p => p.tint != null ? p.tint : p.seat % 4;
+  // Others
+  $('pOpps').innerHTML = pattaSeats().map(([i, at]) => {
+    const p = s.players[i], n = counts[i], lp = G.mode === 'online' ? G.lobby.find(x => x.pid === p.id) : null;
+    const speaking = G.speaking && G.speaking.has(p.id), micOn = lp ? lp.mic : false;
+    const st = p.left || (lp && lp.left) ? 'Left' : lp && !lp.connected ? 'No network' : n === 1 ? 'EK!' : `${n} cards`;
+    return `<div class="popp ${at} ${s.turn === i && !s.over ? 'turn' : ''} ${p.left ? 'away' : ''}" data-pid="${p.id}">
+      ${avatar(p.look, tint(p), speaking ? 'speak' : '', p.id)}
+      <span class="nm">${esc(p.name)}</span>
+      <span class="fan">${Array.from({ length: Math.min(n, 8) }, () => '<i></i>').join('')}</span>
+      <span class="k ${n <= 2 ? 'hot' : ''}">${st}</span>
+      ${s.catchable === i && me >= 0 && me !== i ? '<button class="catchbtn" data-catch="1">Catch! +2</button>' : ''}
+      ${G.mode === 'online' ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
+    </div>`;
+  }).join('');
+  // Table
+  const pile = s.pile.slice(-3);
+  $('pPile').innerHTML = pile.map((c, k) => pcardHtml(c, 'onpile', `style="transform:rotate(${[-10, 6, -3][k + 3 - pile.length]}deg) translate(${[-6, 5, 0][k + 3 - pile.length]}px,0)"`)).join('');
+  $('pDeckN').textContent = typeof s.draw === 'number' ? s.draw : s.draw.length;
+  $('pDir').classList.toggle('rev', s.dir < 0);
+  const t = pattaTop(s);
+  $('pCol').innerHTML = `<span class="dot" style="background:${JEWEL_HEX[s.col]}"></span>${PCOLORS[s.col]}${s.pend ? ` · ${esc(s.players[s.turn].name)} must pick ${s.pend}` : ''}`;
+  $('pCol').style.background = JEWEL_HEX[s.col] + 'dd';
+  void t;
+  // My hand
+  const hand = me >= 0 ? (s.hands[me] || []) : [];
+  const mine = pIsMine(), ok = mine ? pattaPlayable(s, me) : [];
+  const n = hand.length, W = Math.min(innerWidth, 480), cw = 74;
+  const step = n > 1 ? Math.min(46, (W - 40 - cw) / (n - 1)) : 0;
+  const x0 = (W - (cw + step * (n - 1))) / 2;
+  $('pHand').innerHTML = hand.map((c, k) => {
+    const tt = k - (n - 1) / 2, rot = n > 1 ? tt * Math.min(3, 20 / n) : 0, y = Math.abs(tt) * Math.abs(tt) * Math.min(2.2, 36 / (n * n));
+    const can = ok.includes(c.id);
+    return pcardHtml(c, `inhand ${mine ? (can ? 'can' : 'cant') : ''} ${G.newIds && G.newIds.includes(c.id) ? 'new' : ''}`, `data-card="${c.id}" style="left:${x0 + k * step}px;top:${y}px;transform:rotate(${rot}deg);z-index:${k}"`);
+  }).join('');
+  // Me
+  const P = me >= 0 ? s.players[me] : null;
+  $('pMe').innerHTML = P ? `<div class="${mine ? 'turn' : ''}">${avatar(P.look, tint(P), G.speaking && G.speaking.has(P.id) ? 'speak' : '', P.id)}</div>` : '';
+  const canEk = me >= 0 && !s.over && hand.length <= 2 && hand.length > 0 && !s.ek[me];
+  $('pEk').classList.toggle('show', canEk || (s.catchable === me && me >= 0));
+  $('pKeep').classList.toggle('show', mine && s.drawn != null);
+  $('pDeck').classList.toggle('ready', mine && s.drawn == null && !ok.length);
+  $('pDeck').disabled = !(mine && s.drawn == null) || G.busy;
+  $('pTurn').textContent = pattaTurnText();
+  // Pass & play: hide the cards until the next person is holding the phone.
+  const cur = G.mode === 'local' && !s.over && G.shown !== s.turn;
+  $('pCurtain').classList.toggle('show', cur);
+  if (cur) { const q = s.players[s.turn]; $('pCurAv').innerHTML = faceImg(q.look, tint(q), q.id); $('pCurName').textContent = q.name + '’s turn'; }
+}
+function pattaTurnText() {
+  const s = G.s; if (s.over) return 'Game over';
+  if (G.note && G.note.until > Date.now()) return G.note.text;
+  const p = s.players[s.turn], left = G.turnEnds ? Math.max(0, Math.ceil((G.turnEnds - Date.now()) / 1000)) : '';
+  const tail = left !== '' ? ` · 0:${String(left).padStart(2, '0')}` : '';
+  if (pIsMine()) {
+    if (s.pend) return `Play a +${s.pend > 2 || pattaTop(s).v === 'w4' ? '4' : '2'} or pick up ${s.pend}` + tail;
+    if (s.drawn != null) return 'Play the new card or keep it' + tail;
+    return (pattaPlayable(s, pattaMe()).length ? 'Your turn' : 'No match: draw a card') + tail;
+  }
+  return p.kind === 'bot' ? `${p.name} is thinking...` : `${p.name}’s turn${tail}`;
+}
+let lastPTick = 0;
+function pattaTick() {
+  if (!G || !G.s) return;
+  $('pTurn').textContent = pattaTurnText();
+  const left = G.turnEnds && !G.s.over ? G.turnEnds - Date.now() : null, fill = $('pFill');
+  if (left == null) fill.style.width = '0';
+  else {
+    fill.style.width = Math.max(0, Math.min(100, left / (PATTA_SECS * 10))) + '%';
+    fill.classList.toggle('low', left < 5000);
+    const sec = Math.ceil(left / 1000);
+    if (pIsMine() && sec <= 5 && sec > 0 && sec !== lastPTick) { lastPTick = sec; sfx('tick'); }
+  }
+  if (G.mode !== 'online' && left != null && left <= 0 && !G.busy) {
+    G.turnEnds = null; const ev = pattaTimeout(G.s); note('Time up'); buzz([80]);
+    pattaApplied(ev).then(nextPatta);
+  }
+}
+// Fly a card picture from one place on the screen to another.
+function flyCard(html, from, to, ms) {
+  return new Promise(res => {
+    if (!from || !to) return res();
+    const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+    const el = document.createElement('div'); el.className = 'pfly'; el.innerHTML = html;
+    el.style.left = a.left + a.width / 2 - 37 + 'px'; el.style.top = a.top + a.height / 2 - 55 + 'px';
+    document.body.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.style.transition = `transform ${ms || 320}ms cubic-bezier(.3,.8,.4,1)`;
+      el.style.transform = `translate(${b.left + b.width / 2 - a.left - a.width / 2}px, ${b.top + b.height / 2 - a.top - a.height / 2}px) rotate(${Math.random() * 16 - 8}deg)`;
+    }));
+    setTimeout(() => { el.remove(); res(); }, (ms || 320) + 30);
+  });
+}
+const seatEl = i => i === pattaMe() ? $('pHand') : document.querySelector(`#pOpps [data-pid="${G.s.players[i].id}"]`);
+// Animate what just happened, then show the new table.
+async function pattaApplied(ev, fromEl) {
+  if (!ev || !G) { renderPatta(); return; }
+  G.busy = true;
+  try { await pattaAnim(ev, fromEl); } catch (e) { console.error(e); }
+  if (!G) return;
+  G.busy = false;
+  renderPatta();
+  setTimeout(() => { if (G && G.newIds) { G.newIds = null; } }, 900);
+}
+async function pattaAnim(ev, fromEl) {
+  const s = G.s;
+  if (ev.t === 'play') {
+    sfx('hop');
+    await flyCard(pcardHtml(ev.card, ''), fromEl || seatEl(ev.who), $('pPile'));
+    const P = s.players[ev.who], you = ev.who === pattaMe() && G.mode !== 'local';
+    if (ev.effect === 'skip') toast(`${you ? 'You' : P.name} skipped the next player`, JEWEL_HEX[ev.card.c]);
+    else if (ev.effect === 'rev') toast('Direction reversed', JEWEL_HEX[ev.card.c]);
+    else if (ev.effect === 'd2' || ev.effect === 'w4') { toast(`+${ev.effect === 'd2' ? 2 : 4}! ${s.pend} cards waiting`, JEWEL_HEX[ev.card.c]); buzz([60, 40, 60]); }
+    else if (ev.effect === 'wild') toast(`Colour: ${PCOLORS[ev.card.c]}`, JEWEL_HEX[ev.card.c]);
+  } else if (ev.t === 'draw' || ev.t === 'caught') {
+    const n = Math.min(ev.n || 1, 4);
+    for (let k = 0; k < n; k++) { sfx('step'); await flyCard('<span class="pc back"><span class="f"></span></span>', $('pDeck'), seatEl(ev.who), 220); }
+    G.newIds = ev.ids || null;
+    if (ev.t === 'caught') { const v = s.players[ev.who]; toast(ev.who === pattaMe() ? 'Caught! You forgot EK! +2' : `${v.name} forgot EK! +2`, '#E5196F'); buzz([100, 50, 100]); }
+    else if (ev.forced) note(`${s.players[ev.who].name} picked up ${ev.n}`);
+  } else if (ev.t === 'ek') { toast(`${ev.who === pattaMe() && G.mode !== 'local' ? 'You' : s.players[ev.who].name}: EK!`, '#E5196F'); sfx('pop'); }
+}
+function nextPatta() {
+  if (!G || G.mode === 'online' || !G.s || G.s.game !== 'patta') return;
+  const s = G.s;
+  renderPatta();
+  if (s.over) { setTimeout(finishPatta, 900); return; }
+  const p = s.players[s.turn];
+  G.turnEnds = p.kind === 'me' ? Date.now() + PATTA_SECS * 1000 : null;
+  if (p.kind === 'bot') setTimeout(() => botPatta(s), 900 + Math.random() * 500);
+  else if (G.mode !== 'local' || G.shown === s.turn) sfx('turn');
+  // Computer players catch you if you forget EK! (not always).
+  if (s.catchable != null && s.players[s.catchable].kind === 'me') {
+    const v = s.catchable, seq = s.seq;
+    setTimeout(() => {
+      if (!G || G.s !== s || s.catchable !== v || s.seq !== seq) return;
+      const by = s.players.findIndex(q => q.kind === 'bot' && !q.left); if (by < 0 || Math.random() < 0.35) return;
+      pattaApplied(catchEk(s, by)).then(nextPatta);
+    }, 1600 + Math.random() * 1200);
+  }
+}
+async function botPatta(s) {
+  if (!G || G.s !== s || s.over) return;
+  const i = s.turn, b = pattaBot(s, i);
+  if (s.hands[i].length <= 2 && Math.random() < 0.85) sayEk(s, i);
+  let ev;
+  if (b.draw) ev = drawCard(s, i); else if (b.pass) ev = pattaPass(s, i); else ev = playCard(s, i, b.card, b.color);
+  await pattaApplied(ev);
+  if (G && G.s === s && s.drawn != null && s.turn === i) { setTimeout(() => botPatta(s), 700); return; }
+  nextPatta();
+}
+// My moves
+function pattaDo(kind, card, color) {
+  const s = G.s, me = pattaMe();
+  if (G.mode === 'online') {
+    if (!G.net.send({ t: kind, card, color, seq: s.seq })) { note('No connection, try again'); G.net.probe(); }
+    return;
+  }
+  let ev = null;
+  if (kind === 'pplay') ev = playCard(s, me, card, color);
+  else if (kind === 'pdraw') ev = drawCard(s, me);
+  else if (kind === 'ppass') ev = pattaPass(s, me);
+  if (!ev) return;
+  G.turnEnds = null;
+  const fromEl = kind === 'pplay' ? document.querySelector(`#pHand [data-card="${card}"]`) : null;
+  const turnBefore = me;
+  pattaApplied(ev, fromEl).then(() => {
+    if (!G || G.s !== s) return;
+    if (G.mode === 'local' && s.turn !== turnBefore) G.shown = null;
+    if (s.drawn != null && s.turn === me) { G.turnEnds = Date.now() + PATTA_SECS * 1000; renderPatta(); return; }
+    nextPatta();
+  });
+}
+$('pHand').addEventListener('click', e => {
+  const el = e.target.closest('[data-card]'); if (!el || !G || G.busy) return;
+  const s = G.s, id = +el.dataset.card;
+  if (!pIsMine()) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); return; }
+  const card = s.hands[pattaMe()].find(c => c.id === id);
+  if (!card || !pattaPlayable(s, pattaMe()).includes(id)) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); note(s.pend ? `Play a +2/+4 or tap the deck to pick up ${s.pend}` : 'This card doesn’t match'); buzz([30]); return; }
+  sfx('click');
+  if (card.c === -1) {
+    modal(`<h3>Pick a colour</h3><div class="pickcol">${PCOLORS.map((n, i) => `<button class="gemc2 ${JEWEL[i]}" data-pc="${i}"><span></span>${n}</button>`).join('')}</div>`);
+    $('modalBox').querySelectorAll('[data-pc]').forEach(b => b.onclick = () => { closeModal(); pattaDo('pplay', id, +b.dataset.pc); });
+    return;
+  }
+  pattaDo('pplay', id);
+});
+$('pDeck').onclick = () => { if (!G || G.busy || !pIsMine() || G.s.drawn != null) return; sfx('click'); pattaDo('pdraw'); };
+$('pKeep').onclick = () => { if (!G || G.busy || !pIsMine()) return; sfx('click'); pattaDo('ppass'); };
+$('pEk').onclick = () => {
+  if (!G || !G.s) return; const s = G.s, me = pattaMe();
+  if (G.mode === 'online') { G.net.send({ t: 'pek' }); sfx('pop'); return; }
+  const ev = sayEk(s, me); if (ev) pattaApplied(ev);
+};
+$('pOpps').addEventListener('click', e => {
+  if (e.target.closest('[data-catch]')) {
+    sfx('click');
+    if (G.mode === 'online') { G.net.send({ t: 'pcatch' }); return; }
+    const ev = catchEk(G.s, pattaMe()); if (ev) pattaApplied(ev).then(nextPatta);
+    return;
+  }
+  const b = e.target.closest('[data-deaf]'); if (!b || !G || !G.voice) return;
+  const off = G.voice.toggleDeafen(b.dataset.deaf); toast(off ? 'Muted for you' : 'Unmuted', '#3A2490'); renderPatta();
+});
+$('pCurtain').onclick = () => { if (!G || !G.s) return; G.shown = G.s.turn; G.turnEnds = Date.now() + PATTA_SECS * 1000; sfx('turn'); renderPatta(); };
+$('pLeave').onclick = () => leaveGame();
+$('pSound').onclick = () => $('gameSound').onclick();
+$('pChat').onclick = () => { sfx('click'); openChat(); };
+// Online
+function onPattaState(m) {
+  G.s = m.s; G.busy = false; G.turnEnds = m.turnEnds || null;
+  G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  if (m.s.over && m.t === 'sync') { finishPatta(); return; }
+  if (current !== 'patta') enterPatta(); else renderPatta();
+  if (m.t === 'start') sfx('turn');
+}
+async function onPattaEv(m) {
+  const ev = m.ev, before = G.s;
+  const fromEl = ev && ev.t === 'play' && ev.who === pattaMe() ? document.querySelector(`#pHand [data-card="${ev.card.id}"]`) : null;
+  G.s = m.s; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  G.turnEnds = m.turnEnds || null;
+  void before;
+  if (current === 'patta') {
+    if (ev && ev.t === 'left') { note(`${G.s.players[ev.who].name} left the game`); renderPatta(); }
+    else await pattaApplied(ev, fromEl);
+  }
+  if (ev && ev.timeout && ev.who === pattaMe()) note('Time up');
+  if (G.s.over) setTimeout(finishPatta, 900);
+  else if (G.s.players[G.s.turn].id === pid && ev && ev.next === G.s.turn) sfx('turn');
+}
+function finishPatta() {
+  if (!G || !G.s) return;
+  const s = G.s, order = pattaRanking(s), W = s.players[s.winner];
+  const me = G.mode === 'local' ? s.players.findIndex(p => p.id === pid) : s.players.findIndex(p => p.id === pid || (G.mode === 'bot' && p.kind === 'me'));
+  const iWon = me === s.winner && G.mode !== 'local';
+  const counts = s.counts || s.hands.map(h => h.length);
+  const tint = p => p.tint != null ? p.tint : p.seat % 4;
+  $('winTitle').textContent = iWon ? 'You won!' : `${W.name} won!`;
+  $('winSub').textContent = s.reason === 'left' ? 'Everyone else left the game' : `${iWon ? 'You' : W.name} played the last card`;
+  if (me >= 0) addHistory({ game: 'patta', mode: G.mode, result: me === s.winner ? 'won' : 'lost', rank: order.indexOf(me) + 1, of: s.players.length,
+    score: me === s.winner ? 'All cards played' : `${counts[me]} card${counts[me] === 1 ? '' : 's'} left`,
+    opp: s.players.filter((p, i) => i !== me).map(p => ({ id: p.id, name: p.name, look: p.look, tint: tint(p) })) });
+  danceStage({ look: W.look, tint: tint(W), name: W.name }, order.slice(1).map(i => ({ look: s.players[i].look, tint: tint(s.players[i]) })));
+  $('winRest').innerHTML = `<div class="rankchips">${order.slice(1).map((i, k) => `<span class="rankchip"><b>${k + 2}</b>${esc(s.players[i].name)} · ${counts[i]} left</span>`).join('')}</div>`;
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
+  $('winAgain').style.display = G.mode === 'online' ? (G.host ? 'flex' : 'none') : 'flex';
+  buzz([60, 40, 60, 40, 120]);
+  show('win'); startDance();
+}
+
 // ---------- Win dance: everyone does bhangra to the dhol ----------
 // Sheets: img/dance<character>-<team colour>.webp, 8 frames. The music has a beat every 0.6 s
 // starting at 0.55 s; a knee goes up on each beat and lands half a beat later.
@@ -1508,7 +1813,7 @@ function openRoom(code) {
   G.voice = new Voice((to, data) => G && G.net && G.net.send({ t: 'rtc', to, data }), (who, on) => { if (!G) return; if (on) G.speaking.add(who); else G.speaking.delete(who); if (current === 'lobby') renderLobby(); else renderCards(); });
   G.voice.setListen(settings.listen);
   G.voice.setVoiceVolume(vol.voice / 100); G.voice.setMicVolume(vol.mic / 50);
-  G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (['game', 'chess', 'carrom'].includes(current)) renderCards(); };
+  G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (PLAY_SCREENS.includes(current)) renderCards(); };
   G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: settings.carromMode });
   roomPhotos.clear();
   $('lobbyCode').textContent = code;
@@ -1545,9 +1850,9 @@ function endOnline() {
 function syncMicButtons() {
   if (!G || !G.voice) return;
   const on = G.voice.hasMic() && !G.voice.muted;
-  ['lobbyMic', 'gameMic', 'cMic', 'rMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
+  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
 }
-['lobbyMic', 'gameMic', 'cMic', 'rMic'].forEach(id => $(id).onclick = async () => {
+['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic'].forEach(id => $(id).onclick = async () => {
   if (!G || !G.voice) return;
   if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
   else G.voice.setMuted(!G.voice.muted);
@@ -1610,7 +1915,7 @@ async function onNet(m) {
       if (current === 'win') $('winAgain').style.display = G.host ? 'flex' : 'none';
       G.voice.sync(live);
       if (current === 'lobby') renderLobby();
-      if (['game', 'chess', 'carrom'].includes(current)) renderCards();
+      if (PLAY_SCREENS.includes(current)) renderCards();
       break;
     }
     case 'err':
@@ -1621,6 +1926,7 @@ async function onNet(m) {
     case 'sync':
       if (m.s && m.s.game === 'chess') { onChessState(m); break; }
       if (m.s && m.s.game === 'carrom') { onCarromState(m); break; }
+      if (m.s && m.s.game === 'patta') { onPattaState(m); break; }
       G.s = m.s; G.turnEnds = m.turnEnds || null; G.busy = false;
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
@@ -1657,6 +1963,7 @@ async function onNet(m) {
       break;
     }
     case 'rshot': await onCarromShot(m); break;
+    case 'pev': await onPattaEv(m); break;
     case 'rend': onCarromEnd(m); break;
     case 'passed':
       if (G.s && G.s.game === 'carrom') { onCarromPassed(m); break; }
@@ -1687,7 +1994,7 @@ async function onNet(m) {
     case 'chat': onChat(m); break;
     case 'photo':
       if (m.img) roomPhotos.set(m.pid, m.img); else roomPhotos.delete(m.pid);
-      if (current === 'lobby') renderLobby(); else if (['game', 'chess', 'carrom'].includes(current)) renderCards();
+      if (current === 'lobby') renderLobby(); else if (PLAY_SCREENS.includes(current)) renderCards();
       break;
     case 'chatlog': G.chat = m.list || []; if ($('chat').classList.contains('show')) renderChat(); break;
     case 'rtc': await G.voice.signal(m.from, m.data); break;
@@ -1738,16 +2045,16 @@ function colorOf(id) {
 }
 function setBadges() {
   const n = (G && G.unread) || 0;
-  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
+  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
 }
 function onChat(m) {
   G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();
   if ($('chat').classList.contains('show')) renderChat();
   else if (m.from !== pid) { G.unread = (G.unread || 0) + 1; setBadges(); sfx('pop'); }
-  if (['game', 'chess', 'carrom'].includes(current)) sayBubble(m);
+  if (PLAY_SCREENS.includes(current)) sayBubble(m);
 }
 function sayBubble(m) {
-  const card = document.querySelector(`.gcard[data-pid="${m.from}"]`);
+  const card = document.querySelector(`#${current} [data-pid="${m.from}"]`);
   if (!card) return;
   const r = card.getBoundingClientRect(), g = { left: 0, top: 0, width: innerWidth, height: innerHeight };
   const el = document.createElement('div'); el.className = 'saybub' + (isBig(m.text) ? ' big' : ''); el.textContent = m.text;
@@ -1865,7 +2172,7 @@ window.ldBack = () => {
   if ($('modal').classList.contains('show')) { closeModal(); return true; }
   if ($('chat').classList.contains('show')) { closeChat(); return true; }
   if ($('cHint').classList.contains('show')) { hideHint(); if (cboard) cboard.clearMarks(); if (G) G.sel = null; return true; }
-  if (['game', 'chess', 'carrom'].includes(current)) { leaveGame(); return true; }
+  if (PLAY_SCREENS.includes(current)) { leaveGame(); return true; }
   if (current === 'lobby') { $('lobbyBack').onclick(); return true; }
   if (current === 'win') { $('winHome').onclick(); return true; }
   if (current === 'profile' && !profile) return false;
@@ -1873,7 +2180,7 @@ window.ldBack = () => {
   if (current !== 'home' && current !== 'splash') { show('home'); return true; }
   return false;
 };
-document.addEventListener('visibilitychange', () => music(!document.hidden && !['game', 'chess', 'carrom'].includes(current)));
+document.addEventListener('visibilitychange', () => music(!document.hidden && !PLAY_SCREENS.includes(current)));
 
 window.__ld = () => G; window.__board = () => board; window.__cboard = () => cboard; window.__rboard = () => rboard; window.__finish = () => finishGame();
 splash();

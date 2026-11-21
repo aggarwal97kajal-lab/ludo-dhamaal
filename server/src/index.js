@@ -3,6 +3,8 @@ import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf, mar
 import { newChess, chessMove, chessTimeout, chessLeft, chessPlayer } from '../../app/src/main/assets/www/js/chessrules.js';
 import { newSnakes, snakeRoll, snakePass } from '../../app/src/main/assets/www/js/snakes.js';
 import { newCarrom, applyShot, carromPass, carromLeft, cleanShot } from '../../app/src/main/assets/www/js/carrom.js';
+import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaLeft, viewFor } from '../../app/src/main/assets/www/js/patta.js';
+const PATTA_MS = 20000;
 const CARROM_MS = 20000;
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
@@ -17,7 +19,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom'], v: 7 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta'], v: 8 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/.well-known/assetlinks.json') return json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: PKG, sha256_cert_fingerprints: CERTS } }]);
     const link = url.pathname.match(/^\/r\/([A-Za-z0-9]{5})\/?$/);
@@ -148,6 +150,7 @@ export class Room {
       case 'move': this.doMove(me, m.token); break;
       case 'cmove': this.doChessMove(ws, me, m); break;
       case 'rshot': this.doCarromShot(ws, me, m); break;
+      case 'pplay': case 'pdraw': case 'ppass': case 'pek': case 'pcatch': this.doPatta(ws, me, m); break;
       case 'chat': {
         const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
         if (!text) break;
@@ -181,7 +184,7 @@ export class Room {
       if (this.s) return this.send(ws, { t: 'err', msg: 'This game has already started.', fatal: true });
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
       // The person who creates the room picks the game. Everyone who joins plays that game.
-      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom'].includes(m.game) ? m.game : 'ludo'; this.mode = ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
+      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta'].includes(m.game) ? m.game : 'ludo'; this.mode = ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
       const max = this.game === 'chess' || this.game === 'carrom' ? 2 : 4;
       if (this.players.length >= max) return this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
       p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false };
@@ -199,6 +202,7 @@ export class Room {
     for (const [who, img] of this.photos) if (who !== pid) this.send(ws, { t: 'photo', pid: who, img });
     if (this.s && this.s.game === 'chess') this.send(ws, { t: 'sync', s: this.s, left: this.chessLeftMs() });
     else if (this.s && this.s.game === 'carrom') this.send(ws, { t: 'sync', s: this.s, turnEnds: this.turnEnds });
+    else if (this.s && this.s.game === 'patta') this.send(ws, { t: 'sync', s: viewFor(this.s, this.s.players.findIndex(x => x.id === pid)), turnEnds: this.turnEnds });
     else if (this.s) this.send(ws, { t: 'sync', s: this.s, moves: this.s.rolled ? this.moves : [], turnEnds: this.turnEnds });
   }
 
@@ -211,7 +215,13 @@ export class Room {
       if (p) { p.connected = false; p.left = true; }
       const gp = this.s.players.find(x => x.id === pid);
       const ci = this.s.game === 'carrom' ? this.s.players.findIndex(x => x.id === pid) : -1;
-      if (ci >= 0 && !this.s.over) {
+      const pi = this.s.game === 'patta' ? this.s.players.findIndex(x => x.id === pid) : -1;
+      if (pi >= 0 && !this.s.over) {
+        const wasTurn = this.s.turn === pi;
+        pattaLeft(this.s, pi);
+        if (this.s.over) this.clearTurn(); else if (wasTurn) this.armTurn(PATTA_MS);
+        this.pAll({ t: 'pev', ev: { t: 'left', who: pi }, turnEnds: this.turnEnds });
+      } else if (ci >= 0 && !this.s.over) {
         carromLeft(this.s, ci); this.clearTurn();
         this.all({ t: 'rend', s: this.s });
       } else if (gp && !this.s.over && this.s.game === 'chess') {
@@ -283,6 +293,16 @@ export class Room {
       this.lobby();
       return;
     }
+    if (this.game === 'patta') {
+      // Who starts moves round the table in every new game.
+      this.pattaRound = (this.pattaRound || 0) + 1;
+      const k = (this.pattaRound - 1) % ready.length, order = ready.slice(k).concat(ready.slice(0, k));
+      this.s = newPatta(order.map(p => ({ id: p.pid, name: p.name, kind: 'remote', look: p.look, tint: p.tint })));
+      this.armTurn(PATTA_MS);
+      this.pAll({ t: 'start', turnEnds: this.turnEnds });
+      this.lobby();
+      return;
+    }
     const cols = seatColors(ready.length);
     const list = ready.map((p, i) => ({ id: p.pid, name: p.name, color: cols[i], kind: 'remote', look: p.look }));
     this.s = this.game === 'snakes' ? newSnakes(list) : newGame(list);
@@ -291,6 +311,31 @@ export class Room {
     this.all({ t: 'start', s: this.s, turnEnds: this.turnEnds });
     this.lobby();
     this.checkAway();
+  }
+
+  // ---------- Rang Patta ----------
+  // Cards are secret: everyone gets their own view of the table.
+  pAll(m) {
+    const s = this.s;
+    for (const [ws, pid] of this.sockets) this.send(ws, Object.assign({}, m, { s: viewFor(s, s.players.findIndex(x => x.id === pid)) }));
+    this.save();
+  }
+  doPatta(ws, pid, m) {
+    const s = this.s; if (!s || s.game !== 'patta' || s.over) return;
+    const i = s.players.findIndex(x => x.id === pid); if (i < 0) return;
+    const turnSeq = s.turn;
+    let ev = null;
+    if (m.t === 'pek') ev = sayEk(s, i);
+    else if (m.t === 'pcatch') ev = catchEk(s, i);
+    else {
+      if (m.seq != null && Number(m.seq) !== s.seq) return this.send(ws, { t: 'sync', s: viewFor(s, i), turnEnds: this.turnEnds });
+      if (m.t === 'pplay') ev = playCard(s, i, Number(m.card), Number(m.color));
+      else if (m.t === 'pdraw') ev = drawCard(s, i);
+      else if (m.t === 'ppass') ev = pattaPass(s, i);
+    }
+    if (!ev) return this.send(ws, { t: 'sync', s: viewFor(s, i), turnEnds: this.turnEnds });
+    if (s.over) this.clearTurn(); else if (m.t !== 'pek' && m.t !== 'pcatch' && (s.turn !== turnSeq || m.t === 'pplay')) this.armTurn(PATTA_MS);
+    this.pAll({ t: 'pev', ev, turnEnds: this.turnEnds });
   }
 
   current() { return this.s ? (this.s.game === 'carrom' ? this.s.players[this.s.turn] : playerOf(this.s, this.s.turn)) : null; }
@@ -336,13 +381,19 @@ export class Room {
   armTurn(ms) {
     this.clearTurn();
     if (!this.s || this.s.over) return;
-    ms = ms || (this.s.game === 'carrom' ? CARROM_MS : TURN_MS);
+    ms = ms || (this.s.game === 'carrom' ? CARROM_MS : this.s.game === 'patta' ? PATTA_MS : TURN_MS);
     this.turnEnds = Date.now() + ms;
     const seq = this.s.seq;
     this.turnTimer = setTimeout(() => { if (this.s && this.s.seq === seq && !this.s.over) this.skip('timeout'); }, ms);
   }
 
   skip(reason) {
+    if (this.s.game === 'patta') {
+      const ev = pattaTimeout(this.s);
+      if (this.s.over) this.clearTurn(); else this.armTurn(PATTA_MS);
+      this.pAll({ t: 'pev', ev: Object.assign({ timeout: true }, ev || {}), turnEnds: this.turnEnds });
+      return;
+    }
     if (this.s.game === 'snakes') snakePass(this.s); else if (this.s.game === 'carrom') carromPass(this.s); else passTurn(this.s);
     this.moves = [];
     this.armTurn();
