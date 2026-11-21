@@ -1992,23 +1992,60 @@ function enterArrows() {
   drawArrows(); renderArrows(); music(false);
 }
 const ARW = 10;
-function arrowPath(a) {
+// Points of an arrow, tail to head tip (in board units), and the way out past the edge.
+function arrowPts(a) {
   const pts = a.cells.map(([r, c]) => [c * ARW + ARW / 2, r * ARW + ARW / 2]);
-  const [dr, dc] = ADIR[a.dir], len = a.cells.length;
-  const [x1, y1] = pts[0], [x2, y2] = pts[pts.length - 1];
-  const ex = len === 1 ? 3.3 : 2.6;
-  const sx = x1 - dc * ex, sy = y1 - dr * ex, hx = x2 + dc * ex, hy = y2 + dr * ex, px = -dr, py = dc;
-  return `M${sx} ${sy} L${hx} ${hy} M${hx - dc * 2.8 + px * 2.6} ${hy - dr * 2.8 + py * 2.6} L${hx} ${hy} L${hx - dc * 2.8 - px * 2.6} ${hy - dr * 2.8 - py * 2.6}`;
+  const [dr, dc] = ADIR[a.dir];
+  const [hx, hy] = pts[pts.length - 1];
+  if (pts.length === 1) pts.unshift([hx - dc * 3.4, hy - dr * 3.4]);
+  pts.push([hx + dc * 3.4, hy + dr * 3.4]);
+  return pts;
 }
+const plen = pts => { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; };
+function pointAt(pts, d) {
+  for (let i = 1; i < pts.length; i++) {
+    const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (d <= l || i === pts.length - 1) { const t = l ? Math.min(1, d / l) : 0; return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t, pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]]; }
+    d -= l;
+  }
+  return pts[pts.length - 1].concat([1, 0]);
+}
+const HEAD = 'M-2.9 -2.5 L0 0 L-2.9 2.5';
 function drawArrows() {
   const L = G.L, W = L.n * ARW;
-  // Faint dots where the picture is, so you can see the shape.
-  let dots = ''; L.mask.forEach((m, i) => { if (m) dots += `<circle cx="${(i % L.n) * ARW + 5}" cy="${Math.floor(i / L.n) * ARW + 5}" r="0.9" fill="rgba(255,255,255,.18)" stroke="none"/>`; });
-  $('arBoard').innerHTML = `<svg viewBox="-2 -2 ${W + 4} ${W + 4}" id="arSvg">${dots}${L.arrows.map(a => {
-    const xs = a.cells.map(c => c[1]), ys = a.cells.map(c => c[0]);
-    const x = Math.min(...xs) * ARW, y = Math.min(...ys) * ARW, w = (Math.max(...xs) - Math.min(...xs) + 1) * ARW, h = (Math.max(...ys) - Math.min(...ys) + 1) * ARW;
-    return `<g class="arw" data-a="${a.id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="transparent" stroke="none"/><path d="${arrowPath(a)}" stroke="${a.color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>`;
+  // Same thin line on every level: about 2.5 screen pixels.
+  const px = ($('arBoard').clientWidth || 360) / (W + 6), sw = Math.max(0.3, Math.min(1.1, 2.5 / px)), hs = sw / 1.05;
+  const HEADS = `M${(-2.9 * hs).toFixed(2)} ${(-2.5 * hs).toFixed(2)} L0 0 L${(-2.9 * hs).toFixed(2)} ${(2.5 * hs).toFixed(2)}`;
+  let dots = ''; L.mask.forEach((m, i) => { if (m) dots += `<circle cx="${(i % L.n) * ARW + 5}" cy="${Math.floor(i / L.n) * ARW + 5}" r="0.55" fill="rgba(42,16,88,.13)" stroke="none"/>`; });
+  G.apts = {};
+  $('arBoard').innerHTML = `<svg viewBox="-3 -3 ${W + 6} ${W + 6}" id="arSvg">${dots}${L.arrows.map(a => {
+    const pts = arrowPts(a), [dr, dc] = ADIR[a.dir];
+    // The path continues straight out past the edge, so the arrow can slide along it.
+    const far = (L.n + 2) * ARW, last = pts[pts.length - 1], out = pts.concat([[last[0] + dc * far, last[1] + dr * far]]);
+    const vis = plen(pts), d = 'M' + out.map(p => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join(' L');
+    G.apts[a.id] = { out, vis };
+    const ang = Math.atan2(dr, dc) * 180 / Math.PI;
+    return `<g class="arw" data-a="${a.id}"><path class="hit" d="M${pts.map(p => p.join(' ')).join(' L')}" stroke="rgba(0,0,0,0)" stroke-width="8" fill="none" pointer-events="stroke" stroke-linecap="round"/>
+      <path class="body" d="${d}" stroke-dasharray="${vis.toFixed(2)} 9999" stroke-dashoffset="0" stroke-width="${sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none" pointer-events="none"/>
+      <path class="head" d="${HEADS}" transform="translate(${last[0].toFixed(2)} ${last[1].toFixed(2)}) rotate(${ang})" stroke-width="${sw.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" fill="none" pointer-events="none"/></g>`;
   }).join('')}</svg>`;
+}
+// Slide an arrow along its own path: s goes from 0 to 'to' (and back if bounce).
+function slideArrow(g, id, to, bounce, ms) {
+  return new Promise(res => {
+    const { out, vis } = G.apts[id], body = g.querySelector('.body'), head = g.querySelector('.head'), t0 = performance.now();
+    const step = now => {
+      const k = Math.min(1, (now - t0) / ms);
+      const e = bounce ? Math.sin(Math.PI * k) : k * k * (2 - k) * 0.4 + k * k * 0.6;
+      const sd = to * e;
+      body.setAttribute('stroke-dashoffset', (-sd).toFixed(2));
+      const [x, y, dx, dy] = pointAt(out, vis + sd);
+      head.setAttribute('transform', `translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${Math.atan2(dy, dx) * 180 / Math.PI})`);
+      if (!bounce) g.style.opacity = String(Math.max(0, 1 - Math.max(0, k - 0.6) / 0.4));
+      if (k < 1) requestAnimationFrame(step); else res();
+    };
+    requestAnimationFrame(step);
+  });
 }
 function renderArrows() {
   if (!G || !G.L || current !== 'arrows') return;
@@ -2025,24 +2062,20 @@ function renderArrows() {
 $('arBoard').addEventListener('click', e => {
   const g = e.target.closest('.arw'); if (!g || !G || !G.L || G.over || (G.mode === 'online' && G.out)) return;
   const id = +g.dataset.a; if (G.gone.has(id) || g.classList.contains('moving')) return;
-  const L = G.L, a = L.arrows[id], [dr, dc] = ADIR[a.dir], blk = blockerOf(L, G.gone, a);
+  const L = G.L, a = L.arrows[id], blk = blockerOf(L, G.gone, a);
   if (G.hint === id) G.hint = null;
   if (!blk) {
     G.gone.add(id); G.order.push(id); sfx('hop');
-    const far = (L.n + 2) * ARW;
     g.classList.add('moving');
-    const an = g.animate([{ transform: 'translate(0,0)', opacity: 1 }, { transform: `translate(${dc * far}px, ${dr * far}px)`, opacity: 0 }], { duration: 420, easing: 'cubic-bezier(.5,0,.8,.6)', fill: 'forwards' });
-    an.onfinish = () => { g.classList.remove('moving'); g.classList.add('gone'); };
+    slideArrow(g, id, (L.n + 2) * ARW, false, 520).then(() => { g.classList.remove('moving'); g.classList.add('gone'); });
     renderArrows();
     if (G.mode === 'online') G.net.send({ t: 'aprog', filled: G.gone.size, mistakes: AR_HEARTS - G.hearts });
-    if (G.gone.size === L.arrows.length) { G.over = true; setTimeout(arrowsCleared, 500); }
+    if (G.gone.size === L.arrows.length) { G.over = true; setTimeout(arrowsCleared, 600); }
   } else {
-    // Bump into the arrow in the way and come back. Costs a heart.
-    const d = (blk.steps - 1) * ARW + 2;
-    g.classList.add('moving');
-    const an = g.animate([{ transform: 'translate(0,0)' }, { transform: `translate(${dc * d}px, ${dr * d}px)`, offset: 0.45 }, { transform: 'translate(0,0)' }], { duration: 480, easing: 'ease-in-out' });
-    an.onfinish = () => g.classList.remove('moving');
-    const bg = document.querySelector(`#arSvg [data-a="${blk.id}"]`); if (bg) { bg.classList.remove('hit'); void bg.getBoundingClientRect(); bg.classList.add('hit'); }
+    // Slide up to the arrow in the way, bump, slide back. Costs a heart.
+    g.classList.add('moving', 'bump');
+    slideArrow(g, id, Math.max(1.5, (blk.steps - 1) * ARW + 1.5), true, 480).then(() => g.classList.remove('moving', 'bump'));
+    const bg = document.querySelector(`#arSvg [data-a="${blk.id}"]`); if (bg && !blk.self) { bg.classList.remove('hit'); void bg.getBoundingClientRect(); bg.classList.add('hit'); }
     G.hearts--; sfx('capture'); buzz([80, 40, 80]);
     renderArrows();
     if (G.mode === 'online') G.net.send({ t: 'aprog', filled: G.gone.size, mistakes: AR_HEARTS - G.hearts });

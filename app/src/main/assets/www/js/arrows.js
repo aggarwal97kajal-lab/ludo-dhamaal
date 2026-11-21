@@ -29,13 +29,20 @@ const PAL = [
 
 export const sizeFor = level => Math.min(14, 6 + Math.floor((level - 1) / 3));
 
+// Direction an arrow points: from its second-last cell to its head (single cells keep their own).
+export function headDir(a) {
+  if (a.cells.length < 2) return a.dir;
+  const [r1, c1] = a.cells[a.cells.length - 2], [r2, c2] = a.cells[a.cells.length - 1];
+  return r2 > r1 ? 'd' : r2 < r1 ? 'u' : c2 > c1 ? 'r' : 'l';
+}
 // Which arrows are in the way of arrow a (cells between its head and the edge)?
+// An arrow that curls round in front of its own head can never leave.
 export function blockerOf(L, gone, a) {
   const [dr, dc] = DIRS[a.dir], head = a.cells[a.cells.length - 1];
   let r = head[0] + dr, c = head[1] + dc, steps = 1;
   while (r >= 0 && c >= 0 && r < L.n && c < L.n) {
     const id = L.at[r * L.n + c];
-    if (id >= 0 && !gone.has(id)) return { id, steps };
+    if (id >= 0 && !gone.has(id)) return { id, steps, self: id === a.id };
     r += dr; c += dc; steps++;
   }
   return null;
@@ -64,20 +71,29 @@ export function makeLevel(level, seed) {
     const at = Array(n * n).fill(-1), arrows = [];
     const order = mask.map((m, i) => i).filter(i => mask[i]);
     for (let k = order.length - 1; k > 0; k--) { const j = Math.floor(rand() * (k + 1)); [order[k], order[j]] = [order[j], order[k]]; }
-    const maxLen = level < 4 ? 2 : level < 15 ? 3 : 4;
+    // Each arrow is a bendy line (like a snake) through free cells of the picture.
+    const maxLen = level < 4 ? 3 : level < 12 ? 5 : 7;
+    const D4 = [[0, 1], [1, 0], [0, -1], [-1, 0]];
     for (const i of order) {
       if (at[i] >= 0) continue;
-      const r = Math.floor(i / n), c = i % n, horiz = rand() < 0.5;
-      const want = 1 + Math.floor(rand() * maxLen);
-      const cells = [[r, c]];
-      for (let s = 1; s < want; s++) { const rr = horiz ? r : r + s, cc = horiz ? c + s : c; if (rr < n && cc < n && mask[rr * n + cc] && at[rr * n + cc] < 0) cells.push([rr, cc]); else break; }
-      const vert = cells.length > 1 ? !horiz : rand() < 0.5;
-      const fwd = rand() < 0.5;
-      const dir = vert ? (fwd ? 'd' : 'u') : (fwd ? 'r' : 'l');
-      if (!fwd) cells.reverse();
-      const id = arrows.length;
-      cells.forEach(([rr, cc]) => { at[rr * n + cc] = id; });
-      arrows.push({ id, cells, dir });
+      const cells = [[Math.floor(i / n), i % n]];
+      const id = arrows.length; at[i] = id;
+      let d = Math.floor(rand() * 4);
+      const want = 2 + Math.floor(rand() * (maxLen - 1));
+      for (let k = 1; k < want; k++) {
+        const [lr, lc] = cells[cells.length - 1];
+        const turn = rand() < 0.35;
+        const tries = turn ? [(d + 1) % 4, (d + 3) % 4, d] : [d, (d + 1) % 4, (d + 3) % 4];
+        let moved = false;
+        for (const t of tries) {
+          const nr = lr + D4[t][0], nc = lc + D4[t][1];
+          if (nr >= 0 && nc >= 0 && nr < n && nc < n && mask[nr * n + nc] && at[nr * n + nc] < 0) { cells.push([nr, nc]); at[nr * n + nc] = id; d = t; moved = true; break; }
+        }
+        if (!moved) break;
+      }
+      const a = { id, cells, dir: ['r', 'd', 'l', 'u'][Math.floor(rand() * 4)] };
+      a.dir = headDir(a);
+      arrows.push(a);
     }
     const L = { level, seed: seed || 0, n, shape, mask, at, arrows };
     // Turn stuck arrows around until the level can be cleared.
@@ -85,9 +101,8 @@ export function makeLevel(level, seed) {
     while (!res.ok && tries++ < 300) {
       const stuck = arrows.filter(a => !res.gone.has(a.id));
       const a = stuck[Math.floor(rand() * stuck.length)];
-      const flip = { u: 'd', d: 'u', l: 'r', r: 'l' }[a.dir];
-      if (a.cells.length === 1 && rand() < 0.5) a.dir = ['u', 'd', 'l', 'r'][Math.floor(rand() * 4)];
-      else { a.dir = flip; a.cells.reverse(); }
+      if (a.cells.length === 1) a.dir = ['u', 'd', 'l', 'r'][Math.floor(rand() * 4)];
+      else { a.cells.reverse(); a.dir = headDir(a); }
       res = solvable(L);
     }
     if (!res.ok) continue;

@@ -514,15 +514,16 @@ h2 { font-size: 25px; }
 .hearts i { font-style: normal; transition: transform .2s; }
 .arbar { height: 10px; border-radius: 10px; background: #12072e; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .8); overflow: hidden; }
 .arbar i { display: block; height: 100%; width: 0; border-radius: 10px; background: linear-gradient(180deg, #fff6c4, #ffd34d 35%, #d99100); box-shadow: 0 0 10px rgba(255, 211, 77, .6); transition: width .3s; }
-.arboard { width: 100%; aspect-ratio: 1; flex-shrink: 0; border-radius: 22px; padding: 8px;
-  background: radial-gradient(circle at 50% 40%, rgba(93, 44, 149, .55), rgba(28, 12, 64, .8)); box-shadow: 0 0 0 2px #b87800, 0 0 0 3.5px rgba(255, 225, 122, .35), inset 0 0 30px rgba(0, 0, 0, .4); }
+.arboard { width: 100%; aspect-ratio: 1; flex-shrink: 0; border-radius: 22px; padding: 6px; overflow: hidden;
+  background: radial-gradient(circle at 50% 40%, #fffdf6, #f6eedc); box-shadow: 0 0 0 3px #d99100, 0 0 0 5px #fff6c4, 0 14px 30px rgba(0, 0, 0, .5); }
 .arboard svg { width: 100%; height: 100%; display: block; overflow: visible; }
 .arw { cursor: pointer; }
-.arw path { filter: drop-shadow(0 .6px 0 rgba(0, 0, 0, .45)); }
+.arw .body, .arw .head { stroke: #2a1058; }
 .arw.gone { display: none; }
-.arw.hint path { stroke: #fff6c4; animation: hintglow .8s ease-in-out infinite; }
-@keyframes hintglow { 50% { stroke-width: 3.6; filter: drop-shadow(0 0 2px #ffd34d); } }
-.arw.hit path { animation: hitflash .5s ease; }
+.arw.hint .body, .arw.hint .head { stroke: #e5196f; animation: hintglow .8s ease-in-out infinite; }
+@keyframes hintglow { 50% { opacity: .45; } }
+.arw.bump .body, .arw.bump .head { stroke: #e0103a; }
+.arw.hit .body, .arw.hit .head { animation: hitflash .5s ease; }
 @keyframes hitflash { 30% { stroke: #ff4d6d; } }
 .arhelp { margin: 0; text-align: center; font-size: 12.5px; color: #cdbdf5; }
 #arHint.none .iconbtn { opacity: .5; }
