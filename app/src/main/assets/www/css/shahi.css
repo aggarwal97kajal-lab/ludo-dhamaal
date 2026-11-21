@@ -293,3 +293,4 @@ h2 { font-size: 25px; }
 #lobbyStart { white-space: nowrap; font-size: 18px; }
 #splash .blob { display: none; }
 .full > .btn, .full > .panel, .full > .input { flex-shrink: 0; }
+.mini { width: 34px; height: 34px; margin-left: -10px; }

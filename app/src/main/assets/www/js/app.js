@@ -208,12 +208,27 @@ function sendMyPhoto() {
 
 // ---------- Match history (kept on this phone) ----------
 let history = store.get('history', []);
+// Photos of people you played with online, small copies kept on this phone for the history list.
+let friendPhotos = store.get('fphotos', {});
 function addHistory(h) {
   if (!G || G.recorded) return;
   G.recorded = true;
   history.unshift(Object.assign({ at: Date.now() }, h));
   if (history.length > 120) history.length = 120;
   store.set('history', history);
+  (h.opp || []).forEach(o => {
+    const img = o.id && G.mode === 'online' ? roomPhotos.get(o.id) : null;
+    if (!img) return;
+    squarePhoto(img, 72).then(d => {
+      friendPhotos[o.id] = { img: d, at: Date.now() };
+      // Keep only photos of people still in the history, at most 40.
+      const used = new Set(); history.forEach(x => (x.opp || []).forEach(y => y.id && used.add(y.id)));
+      const keep = Object.keys(friendPhotos).filter(k => used.has(k)).sort((a, b) => friendPhotos[b].at - friendPhotos[a].at).slice(0, 40);
+      friendPhotos = Object.fromEntries(keep.map(k => [k, friendPhotos[k]]));
+      store.set('fphotos', friendPhotos);
+      if (current === 'history') renderHistory();
+    }).catch(() => {});
+  });
 }
 function stats(list) {
   const L = list || history;
@@ -253,7 +268,7 @@ function renderHistory() {
     const time = new Date(h.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     const parts = [h.score ? esc(h.score) : '', vs, MODE_TEXT[h.mode] || '', time].filter(Boolean);
     return `<div class="hitem"><div class="gbadge ${h.game}">${GAME_ICON[h.game] || '🎲'}</div><div class="grow minw0"><div class="t">${GAME_NAME[h.game].replace(' & Ladders', '')} ${rib}</div><div class="s">${parts.join(', ')}</div></div>
-      <div class="minis">${(h.opp || []).slice(0, 3).map(o => `<div class="mini" style="background:${UI[o.tint || 0]}"><img src="${face(o.look, o.tint || 0)}" alt=""></div>`).join('')}</div></div>`;
+      <div class="minis">${(h.opp || []).slice(0, 3).map(o => { const fp = o.id && friendPhotos[o.id]; return `<div class="mini" style="background:${UI[o.tint || 0]}"><img src="${fp ? fp.img : face(o.look, o.tint || 0)}" alt=""${fp ? ' style="object-position:center"' : ''}></div>`; }).join('')}</div></div>`;
   }).join('')}</div>`).join('');
 }
 $('hFilters').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) { hFilter = b.dataset.f; sfx('click'); renderHistory(); } });
@@ -718,7 +733,7 @@ function finishGame() {
     const rank = ranks.indexOf(me.color) + 1;
     addHistory({ game: s.game === 'snakes' ? 'snakes' : 'ludo', mode: G.mode, result: rank === 1 ? 'won' : 'lost', rank, of: ranks.length,
       score: s.game === 'snakes' ? (rank === 1 ? 'Reached 100' : `Square ${s.pos[me.color] || 0}`) : `${s.tokens[me.color].filter(x => x === FINISH).length}/4 home`,
-      opp: s.players.filter(p => p.id !== pid).map(p => ({ name: p.name, look: p.look, tint: p.color })) });
+      opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.color })) });
   }
   $('winRest').innerHTML = `<div class="rankchips">${ranks.slice(1).map((c, i) => `<span class="rankchip"><b>${i + 2}</b>${esc(P(c).name)}</span>`).join('')}</div>`;
   const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
@@ -1028,7 +1043,7 @@ function finishChess() {
     const mc = G.mode === 'local' ? meP.color : meColor;
     addHistory({ game: 'chess', mode: G.mode, result: !s.winner ? 'draw' : s.winner === mc ? 'won' : 'lost', of: 2,
       score: s.reason === 'time' ? 'On time' : s.reason === 'left' ? 'Player left' : s.winner ? 'Checkmate' : 'Draw',
-      opp: s.players.filter(p => p.id !== pid).map(p => ({ name: p.name, look: p.look, tint: p.tint != null ? p.tint : (p.color === 'w' ? 2 : 3) })) });
+      opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint != null ? p.tint : (p.color === 'w' ? 2 : 3) })) });
   }
   $('winTitle').textContent = res.title;
   $('winSub').textContent = res.sub;
@@ -1359,7 +1374,7 @@ function finishCarrom() {
   const iWon = meI === s.winner;
   const mi = s.players.findIndex(p => p.id === pid);
   if (mi >= 0) addHistory({ game: 'carrom', mode: G.mode, result: s.winner === mi ? 'won' : 'lost', of: 2, score: `${s.got[mi]}–${s.got[1 - mi]}`,
-    opp: s.players.filter(p => p.id !== pid).map(p => ({ name: p.name, look: p.look, tint: p.tint != null ? p.tint : 3 })) });
+    opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint != null ? p.tint : 3 })) });
   $('winTitle').textContent = iWon ? 'You won!' : `${W.name} won!`;
   $('winSub').textContent = s.reason === 'left' ? 'The other player left the game' : `${iWon ? 'You' : W.name} pocketed all 9 coins first (${s.got[0]} - ${s.got[1]})`;
   const Lo = s.players[1 - s.winner];
