@@ -12,6 +12,8 @@ import { newSnakes, snakeRoll, snakePass, GOAL } from './snakes.js';
 import { Chess } from './chesslib.js';
 import { makeLevel as arrowLevel, blockerOf, isFree as arrowFree, DIR as ADIR, HEARTS as AR_HEARTS } from './arrows.js';
 import { judge as drawJudge, ROUNDS as D_ROUNDS, DRAW_MS, CHOOSE_MS, REVEAL_MS } from './draw.js';
+import { makeTower, platformsFor } from './helix.js';
+import { Helix3D } from './helix3d.js';
 import { makePuzzle, dailySeed, peers as sdPeers, LEVELS as SD_LEVELS, LEVEL_NAME as SD_NAME, MAX_MISTAKES as SD_MAX } from './sudoku.js';
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaBot, playable as pattaPlayable, canPlay as pattaCanPlay, top as pattaTop, label as pattaLabel, ranking as pattaRanking, COLORS as PCOLORS } from './patta.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
@@ -31,7 +33,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('ld:' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 };
 let profile = store.get('profile', null);
-const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', carrom3d: false, striker: 0, sdLevel: 'medium', arLevel: 1 }, store.get('settings', {}));
+const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', carrom3d: false, striker: 0, sdLevel: 'medium', arLevel: 1, hxLevel: 1 }, store.get('settings', {}));
 // Volumes 0-100 (mic: 50 = normal, 100 = twice as loud).
 const vol = Object.assign({ master: 80, music: 60, sfx: 80, win: 90, voice: 100, mic: 50, vib: 70 }, store.get('vol', {}));
 prefs.vol = vol;
@@ -54,6 +56,8 @@ const avatar = (look, color, cls, id) => `<div class="av ${cls || ''}">${faceImg
 
 // ---------- Screens ----------
 let current = 'splash';
+let hboard = null;
+function dropHBoard() { if (hboard) { hboard.destroy(); hboard = null; } }
 function show(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('show', s.id === id));
   current = id;
@@ -61,6 +65,7 @@ function show(id) {
   if (board) board.paused = id !== 'game';
   if (cboard) cboard.paused = id !== 'chess';
   if (rboard) rboard.paused = id !== 'carrom';
+  if (hboard) hboard.paused = id !== 'helix';
   if (id === 'home') renderHome();
   if (id === 'gamehome') renderModes();
   if (id === 'history') renderHistory();
@@ -242,7 +247,7 @@ function stats(list) {
   const best = Object.keys(by).sort((x, y) => by[y] - by[x])[0] || null;
   return { played: L.length, won, lost, rate: L.length ? Math.round(won / L.length * 100) : 0, streak, best };
 }
-const GAME_ICON = { ludo: '🎲', chess: '&#9822;', carrom: '🎯', snakes: '🐍', patta: '🃏', sudoku: '🔢', arrows: '➹', draw: '✏️' };
+const GAME_ICON = { ludo: '🎲', chess: '&#9822;', carrom: '🎯', snakes: '🐍', patta: '🃏', sudoku: '🔢', arrows: '➹', draw: '✏️', helix: '🌀' };
 function statsHtml(st, profileView) {
   const four = profileView
     ? [['gold', st.played, 'Played'], ['green', st.won, 'Won'], ['', st.rate + '%', 'Win rate'], ['', (st.streak ? '🔥' : '') + st.streak, 'Streak']]
@@ -260,7 +265,7 @@ const MODE_TEXT = { online: 'online', bot: 'vs computer', local: 'pass & play' }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)]);
 function renderHistory() {
   $('hStats').innerHTML = statsHtml(stats(), false);
-  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'Rang Patta'], ['sudoku', 'Sudoku'], ['arrows', 'Arrows'], ['draw', 'Draw']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
+  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'Rang Patta'], ['sudoku', 'Sudoku'], ['arrows', 'Arrows'], ['draw', 'Draw'], ['helix', 'Helix']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
   const L = history.filter(h => hFilter === 'all' || h.game === hFilter);
   if (!L.length) { $('hList').innerHTML = `<div class="panel hempty"><b>No games yet</b>Play a game and it will show up here.</div>`; return; }
   const groups = [];
@@ -280,9 +285,9 @@ $('hFilters').addEventListener('click', e => { const b = e.target.closest('[data
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
-const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta', sudoku: 'Sudoku', arrows: 'Arrow Escape', draw: 'Draw & Guess' };
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta', sudoku: 'Sudoku', arrows: 'Arrow Escape', draw: 'Draw & Guess', helix: 'Helix Drop' };
 // Screens where a game is being played (music off, back button asks to leave, chat bubbles).
-const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku', 'arrows', 'draw'];
+const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'];
 const ARCH = '<svg class="frame" viewBox="0 0 176 228" preserveAspectRatio="none"><use href="#archOuter" fill="none" stroke="url(#g)" stroke-width="7"/><use href="#archInner" fill="none" stroke="#ffe17a" stroke-width="1.2" opacity=".8"/><circle cx="88" cy="7" r="5" fill="GEM" stroke="#ffe17a" stroke-width="2"/></svg>';
 function renderHome() {
   $('homeAv').innerHTML = myPhoto ? `<div class="in photo" style="background:${UI[profile.color]}"><img src="${myPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
@@ -310,7 +315,7 @@ function renderHome() {
     arch('sudoku', '#e5196f', '1-4', `<div class="minisd">${[5, '', 3, '', 8, '', 7, '', 1].map((n, i) => `<i class="${i === 4 ? 'on' : ''}">${n}</i>`).join('')}</div>`, 'Sudoku', 'Daily puzzle', '', true) +
     arch('arrows', '#0fb5a5', '1-4', '<svg viewBox="0 0 80 80" style="width:78px;height:78px;margin-bottom:10px;stroke:none"><g stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M14 22 H50 M44 14 L54 22 L44 30" stroke="#fff"/><path d="M30 40 V70 M22 62 L30 72 L38 62" stroke="#ffd34d"/><path d="M66 70 V36 M58 44 L66 34 L74 44" stroke="#ff5f93"/><path d="M46 52 H14 M22 44 L12 52 L22 60" stroke="#7af0ff"/></g></svg>', 'Arrow Escape', `Level ${settings.arLevel || 1}`, 'long', true) +
     arch('draw', '#ffd34d', '2-6', '<div class="minidraw"><span class="pg"><svg viewBox="0 0 100 90"><path d="M30 34 C42 20 66 24 70 44 C74 64 56 76 42 72 C26 68 22 52 30 34Z" fill="none" stroke="#e6a800" stroke-width="5"/><path d="M48 26 L52 14" stroke="#6b3a00" stroke-width="5" stroke-linecap="round"/><path d="M52 16 C60 8 72 10 74 16 C66 20 58 20 52 16Z" fill="#059669" stroke="none"/></svg></span><i>✏️</i></div>', 'Draw &amp; Guess', 'Draw, friends guess', 'long', true) +
-    arch('soon', '#ffd34d', '', '<div style="font-size:40px;margin-bottom:22px">✨</div>', 'More coming', 'Tell us your pick', 'long', false, true);
+    arch('helix', '#e5196f', '1-4', '<svg viewBox="0 0 80 90" style="width:76px;height:86px;margin-bottom:8px;stroke:none"><rect x="35" y="0" width="10" height="90" rx="3" fill="#fff6c4"/><path d="M6 22 A34 10 0 0 0 74 22 L74 28 A34 10 0 0 1 6 28Z" fill="#ffb3d9"/><ellipse cx="40" cy="22" rx="34" ry="10" fill="#ffd1ea"/><path d="M40 22 L74 22 A34 10 0 0 1 58 31Z" fill="#e5196f"/><path d="M6 52 A34 10 0 0 0 74 52 L74 58 A34 10 0 0 1 6 58Z" fill="#ffb3d9"/><ellipse cx="40" cy="52" rx="34" ry="10" fill="#ffd1ea"/><path d="M40 52 L6 52 A34 10 0 0 1 22 43Z" fill="#7a2a8a"/><circle cx="54" cy="10" r="7" fill="#ff3b6b" stroke="#fff" stroke-width="1.5"/></svg>', 'Helix Drop', `Level ${settings.hxLevel || 1}`, 'long', true);
   music(true);
 }
 $('homeAv').onclick = () => { sfx('click'); openProfile(); };
@@ -322,7 +327,7 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : GAME === 'draw' ? '<div class="l1">Draw &amp;</div><div class="l2">Guess</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : GAME === 'draw' ? '<div class="l1">Draw &amp;</div><div class="l2">Guess</div>' : GAME === 'helix' ? '<div class="l1">Helix</div><div class="l2">Drop</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = GAME === 'carrom' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
@@ -345,6 +350,13 @@ function renderModes() {
     <div class="ppl">${typeof m[4] === 'string' ? m[4] : m[4].map(i => body(i, i, GAME === 'carrom' ? 58 : 82)).join('')}</div></button>`).join('');
   if (GAME === 'sudoku') { $('modes').innerHTML = sudokuModesHtml(); music(true); return; }
   if (GAME === 'arrows') { $('modes').innerHTML = arrowModesHtml(); music(true); return; }
+  if (GAME === 'helix') {
+    const lv = settings.hxLevel || 1;
+    $('modes').innerHTML = `<button class="sdmode gold" data-hxmode="play"><span class="col grow"><b>Play level ${lv}</b><small>Best score ${store.get('hxBest', 0)}. Swipe to turn the tower, drop through the gaps</small></span></button>
+      <button class="sdmode ruby" data-mode="online"><span class="col grow"><b>Race a friend</b><small>Same tower for both, talk on mic. First to the bottom wins</small></span></button>
+      <button class="sdmode blue" data-mode="join"><span class="col grow"><b>Join a race</b><small>Enter your friend’s room code</small></span></button>`;
+    music(true); return;
+  }
   if (GAME === 'draw') {
     $('modes').innerHTML = `<div class="drawintro panel"><b>How it works</b><span>One person draws a secret word. Everyone else types guesses. The quicker you guess, the more points you get. Everyone draws once in each of 3 rounds. 2 to 6 players, with voice chat.</span></div>
       <button class="sdmode ruby" data-mode="online"><span class="col grow"><b>Create a room</b><small>Invite friends on WhatsApp</small></span></button>
@@ -379,6 +391,7 @@ function carromPic(mode) {
 $('modes').addEventListener('click', e => {
   const lv = e.target.closest('[data-sdlevel]'); if (lv) { settings.sdLevel = lv.dataset.sdlevel; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const sm = e.target.closest('[data-sdmode]'); if (sm) { sfx('click'); sudokuMode(sm.dataset.sdmode); return; }
+  const hm = e.target.closest('[data-hxmode]'); if (hm) { sfx('click'); startHelix(settings.hxLevel || 1); return; }
   const am = e.target.closest('[data-armode]'); if (am) { sfx('click'); arrowMode(am.dataset.armode); return; }
   const ct = e.target.closest('[data-ctype]'); if (ct) { settings.carromMode = ct.dataset.ctype; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const sk = e.target.closest('[data-stk]'); if (sk) { settings.striker = +sk.dataset.stk; store.set('settings', settings); sfx('click'); if (rboard) rboard.setStrikerStyle(settings.striker); renderModes(); return; }
@@ -505,6 +518,7 @@ function renderCards() {
   if (G.s && G.s.game === 'sudoku') return renderRace();
   if (G.s && G.s.game === 'arrows') return renderArRace();
   if (G.s && G.s.game === 'draw') return renderDraw();
+  if (G.s && G.s.game === 'helix') return renderHxRace();
   if (G.s && G.s.game === 'chess') return renderChessCards();
   if (G.s && G.s.game === 'carrom') return renderCarromCards();
   const s = G.s;
@@ -633,7 +647,7 @@ function refreshDice() {
 }
 
 function enterGame(mode) {
-  dropCBoard(); dropRBoard();
+  dropCBoard(); dropRBoard(); dropHBoard();
   show('game');
   const b = ensureBoard(G.s.game === 'snakes' ? 'snakes' : 'ludo');
   syncBoard(b);
@@ -666,7 +680,7 @@ const SPK_ON = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path
 const SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>';
 function syncSpeaker() {
   const on = settings.sound || settings.music;
-  ['gameSound', 'cSound', 'rSound', 'pSound', 'sdSound', 'arSound'].forEach(id => {
+  ['gameSound', 'cSound', 'rSound', 'pSound', 'sdSound', 'arSound', 'hxSound'].forEach(id => {
     $(id).innerHTML = on ? SPK_ON : SPK_OFF;
     $(id).setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
     $(id).classList.toggle('off', !on);
@@ -684,6 +698,7 @@ syncSpeaker();
 function leaveGame() {
   if (G && G.game === 'sudoku' && G.mode !== 'online') { saveSudoku(); G = null; show('gamehome'); return; }
   if (G && G.game === 'arrows' && G.mode !== 'online') { G = null; show('gamehome'); return; }
+  if (G && G.game === 'helix' && G.mode !== 'online') { G = null; show('gamehome'); return; }
   confirmBox('Leave the game?', G && G.mode === 'online' ? 'You can come back with the same room code while the game is on.' : 'This game will end.', 'Leave', 'Stay', () => {
     if (G && G.mode === 'online') endOnline();
     G = null; show('gamehome');
@@ -877,7 +892,7 @@ function myChessColor() {
   return p && p.kind === 'me' ? s.turn : other(s.turn);
 }
 function enterChess() {
-  dropBoard(); dropRBoard();
+  dropBoard(); dropRBoard(); dropHBoard();
   show('chess');
   const b = ensureCBoard();
   b.setPosition(G.s.fen); b.clearMarks();
@@ -1173,7 +1188,7 @@ function canShoot() {
   return p.kind === 'me';
 }
 function enterCarrom() {
-  dropBoard(); dropCBoard();
+  dropBoard(); dropCBoard(); dropHBoard();
   show('carrom');
   ensureRBoard();
   $('rRoom').textContent = CTYPE_NAME[G.s.mode || 'classic'] + ' · ' + (G.mode === 'online' ? 'Room ' + G.code : (G.mode === 'bot' ? 'Vs computer' : 'Pass & play'));
@@ -2342,6 +2357,113 @@ function onDrawEnd(m) {
   setTimeout(() => { show('win'); startDance(); }, 900);
 }
 
+// ---------- Helix Drop ----------
+function ensureHBoard() {
+  if (hboard && hboard.dead) hboard = null;
+  if (!hboard) hboard = new Helix3D(freshCanvas('hxCanvas'));
+  else hboard.resize();
+  hboard.paused = false;
+  hboard.on = hxEvent;
+  return hboard;
+}
+function startHelix(level, seed) {
+  G = { mode: 'solo', game: 'helix' };
+  hxLoad(level, seed);
+}
+function hxLoad(level, seed) {
+  G.level = level; G.seed = seed || 0; G.score = G.score || 0; G.falls = G.falls || 0; G.best = G.best || 0; G.over = false;
+  dropBoard(); dropCBoard(); dropRBoard();
+  show('helix');
+  $('hxRace').classList.toggle('show', G.mode === 'online');
+  $('hxOver').classList.remove('show');
+  setBadges(); syncMicButtons(); syncSpeaker();
+  const b = ensureHBoard();
+  G.tower = makeTower(level, G.seed);
+  b.load(G.tower);
+  G.levelScore = 0;
+  $('hxHelp').classList.add('show');
+  renderHelix(); music(false);
+}
+function renderHelix() {
+  if (!G || G.game !== 'helix') return;
+  const total = platformsFor(G.level), passed = hboard ? hboard.passed : 0;
+  $('hxA').textContent = G.mode === 'online' ? '' : G.level; $('hxB').textContent = G.mode === 'online' ? '🏁' : G.level + 1;
+  $('hxA').classList.toggle('hide', G.mode === 'online');
+  $('hxProg').style.width = Math.min(100, passed / total * 100) + '%';
+  $('hxScore').textContent = G.mode === 'online' ? `${Math.round(passed / total * 100)}%` : G.score;
+  if (G.mode === 'online') renderHxRace();
+}
+function hxEvent(type, d) {
+  if (!G || G.game !== 'helix') return;
+  if (type === 'start') { $('hxHelp').classList.remove('show'); return; }
+  if (type === 'pass' || type === 'smash') {
+    const pts = d.combo || 1; G.score += pts; G.levelScore += pts;
+    sfx(type === 'smash' ? 'capture' : 'hop');
+    if (type === 'smash') { $('hxCombo').textContent = 'Smash! 💥'; buzz([40]); }
+    else $('hxCombo').textContent = d.combo >= 2 ? `+${d.combo} combo! ${d.combo >= 3 ? '🔥' : ''}` : '';
+    clearTimeout(hxEvent.t); hxEvent.t = setTimeout(() => { $('hxCombo').textContent = ''; }, 900);
+    if (G.mode === 'online') G.net.send({ t: 'hprog', filled: Math.max(G.maxPassed || 0, d.passed), falls: G.falls });
+    G.maxPassed = Math.max(G.maxPassed || 0, d.passed);
+    renderHelix();
+  } else if (type === 'bounce') sfx('step');
+  else if (type === 'die') {
+    sfx('capture'); buzz([120, 60, 120]); G.falls++;
+    if (G.mode === 'online') { G.net.send({ t: 'hprog', filled: G.maxPassed || 0, falls: G.falls }); setTimeout(() => { if (G && G.game === 'helix' && hboard && !G.over) { hboard.reset(); hboard.start(); renderHelix(); toast('Again from the top!', '#3A2490'); } }, 1100); return; }
+    G.score -= G.levelScore; G.levelScore = 0;
+    setTimeout(() => hxOverlay(`<b class="big" style="color:#ff8ab4">Ball broke!</b><span>Red parts of the platforms break the ball. Fall through the gaps instead.</span>
+      <button class="btn gold w100" id="hxNext">Try again</button><button class="btn ghost w100" id="hxHome">Back</button>`, () => { hboard.reset(); renderHelix(); $('hxHelp').classList.add('show'); }), 700);
+  } else if (type === 'win') {
+    sfx('win'); buzz([60, 40, 120]);
+    if (G.mode === 'online') { G.net.send({ t: 'hdone' }); return; }
+    G.over = true;
+    const best = Math.max(store.get('hxBest', 0), G.score); store.set('hxBest', best);
+    if (G.level >= (settings.hxLevel || 1)) { settings.hxLevel = G.level + 1; store.set('settings', settings); }
+    hxOverlay(`<b class="goldtxt big">Level ${G.level} done!</b><span>Score ${G.score} · Best ${best}</span>
+      <button class="btn gold w100" id="hxNext">Next level</button><button class="btn ghost w100" id="hxHome">Back</button>`, () => hxLoad(G.level + 1));
+  }
+}
+function hxOverlay(html, next) {
+  $('hxOverBox').innerHTML = html; $('hxOver').classList.add('show');
+  $('hxNext').onclick = () => { sfx('click'); $('hxOver').classList.remove('show'); next(); };
+  $('hxHome').onclick = () => { G = null; show('gamehome'); };
+}
+$('hxBack').onclick = () => leaveGame();
+$('hxSound').onclick = () => $('gameSound').onclick();
+$('hxChat').onclick = () => { sfx('click'); openChat(); };
+$('hxHelp').addEventListener('pointerdown', () => { if (hboard) { hboard.start(); $('hxHelp').classList.remove('show'); } });
+// Online race
+function renderHxRace() {
+  if (!G || !G.s || G.s.game !== 'helix' || current !== 'helix') return;
+  const s = G.s;
+  $('hxRacers').innerHTML = s.players.map(p => {
+    const lp = G.lobby.find(x => x.pid === p.id), speaking = G.speaking && G.speaking.has(p.id), f = Math.round(p.filled / s.total * 100);
+    return `<div class="racer ${p.left ? 'out' : ''}" data-pid="${p.id}">${avatar(p.look, p.tint != null ? p.tint : 0, speaking ? 'speak' : '', p.id)}
+      <div class="col grow minw0"><span class="nm">${esc(p.id === pid ? 'You' : p.name)}${lp && lp.mic ? ' 🎙️' : ''}</span><span class="racebar"><i style="width:${f}%"></i></span><span class="st">${p.left ? 'Left' : `${f}% · ${p.falls || 0} falls`}</span></div></div>`;
+  }).join('');
+}
+function onHxState(m) {
+  G.s = m.s; G.game = 'helix';
+  if (m.s.over && m.t === 'sync') { onHxEnd(m); return; }
+  if (G.level !== m.s.level || G.seed !== m.s.seed || current !== 'helix') { G.score = 0; G.falls = 0; G.maxPassed = 0; hxLoad(m.s.level, m.s.seed); }
+  else renderHelix();
+  if (m.t === 'start') { sfx('turn'); toast('Go! Same tower for everyone', '#3A2490'); }
+}
+function onHxEnd(m) {
+  G.s = m.s; G.over = true;
+  const s = m.s, W = s.players.find(p => p.id === s.winner) || s.players[0], iWon = W.id === pid, me = s.players.find(p => p.id === pid);
+  if (me) addHistory({ game: 'helix', mode: 'online', result: iWon ? 'won' : 'lost', of: s.players.length, rank: iWon ? 1 : 2, score: `Race · ${Math.round(me.filled / s.total * 100)}% down`,
+    opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint || 0 })) });
+  $('winTitle').textContent = iWon ? 'You won the race!' : `${W.name} won!`;
+  $('winSub').textContent = s.reason === 'solved' ? `${iWon ? 'You' : W.name} reached the bottom first` : 'Everyone else left';
+  danceStage({ look: W.look, tint: W.tint || 0, name: W.name }, s.players.filter(p => p.id !== W.id).map(p => ({ look: p.look, tint: p.tint || 0 })));
+  $('winRest').innerHTML = `<div class="rankchips">${s.players.filter(p => p.id !== W.id).map((p, k) => `<span class="rankchip"><b>${k + 2}</b>${esc(p.name)} · ${Math.round(p.filled / s.total * 100)}%</span>`).join('')}</div>`;
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
+  $('winAgain').style.display = G.host ? 'flex' : 'none';
+  buzz([60, 40, 60, 40, 120]);
+  setTimeout(() => { show('win'); startDance(); }, 700);
+}
+
 // ---------- Win dance: everyone does bhangra to the dhol ----------
 // Sheets: img/dance<character>-<team colour>.webp, 8 frames. The music has a beat every 0.6 s
 // starting at 0.55 s; a knee goes up on each beat and lands half a beat later.
@@ -2463,9 +2585,9 @@ function endOnline() {
 function syncMicButtons() {
   if (!G || !G.voice) return;
   const on = G.voice.hasMic() && !G.voice.muted;
-  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
+  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic', 'hxMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
 }
-['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic'].forEach(id => $(id).onclick = async () => {
+['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic', 'hxMic'].forEach(id => $(id).onclick = async () => {
   if (!G || !G.voice) return;
   if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
   else G.voice.setMuted(!G.voice.muted);
@@ -2477,7 +2599,7 @@ function syncMicButtons() {
 function renderLobby() {
   if (!G) return;
   const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : G.game === 'draw' ? 6 : 4;
-  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : G.game === 'arrows' ? 'Arrow race' : G.game === 'draw' ? 'Draw & Guess' : GAME_NAME[G.game || 'ludo']) + (G.game === 'sudoku' || G.game === 'arrows' ? '' : ' room');
+  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : G.game === 'arrows' ? 'Arrow race' : G.game === 'helix' ? 'Helix race' : G.game === 'draw' ? 'Draw & Guess' : GAME_NAME[G.game || 'ludo']) + (['sudoku', 'arrows', 'helix'].includes(G.game) ? '' : ' room');
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
   const rows = L.map((p, i) => {
@@ -2543,6 +2665,7 @@ async function onNet(m) {
       if (m.s && m.s.game === 'sudoku') { onRaceState(m); break; }
       if (m.s && m.s.game === 'arrows') { onArState(m); break; }
       if (m.s && m.s.game === 'draw') { onDrawState(m); break; }
+      if (m.s && m.s.game === 'helix') { onHxState(m); break; }
       G.s = m.s; G.turnEnds = m.turnEnds || null; G.busy = false;
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
@@ -2588,6 +2711,8 @@ async function onNet(m) {
     case 'dop': onDrawOp(m.op); break;
     case 'dmsg': onDrawMsg(m); break;
     case 'dend': onDrawEnd(m); break;
+    case 'hprog': G.s = m.s; renderHxRace(); break;
+    case 'hend': onHxEnd(m); break;
     case 'rend': onCarromEnd(m); break;
     case 'passed':
       if (G.s && G.s.game === 'carrom') { onCarromPassed(m); break; }
@@ -2669,7 +2794,7 @@ function colorOf(id) {
 }
 function setBadges() {
   const n = (G && G.unread) || 0;
-  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge', 'sdBadge', 'arBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
+  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge', 'sdBadge', 'arBadge', 'hxBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
 }
 function onChat(m) {
   G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();
@@ -2806,5 +2931,5 @@ window.ldBack = () => {
 };
 document.addEventListener('visibilitychange', () => music(!document.hidden && !PLAY_SCREENS.includes(current)));
 
-window.__ld = () => G; window.__board = () => board; window.__cboard = () => cboard; window.__rboard = () => rboard; window.__finish = () => finishGame();
+window.__ld = () => G; window.__hboard = () => hboard; window.__board = () => board; window.__cboard = () => cboard; window.__rboard = () => rboard; window.__finish = () => finishGame();
 splash();

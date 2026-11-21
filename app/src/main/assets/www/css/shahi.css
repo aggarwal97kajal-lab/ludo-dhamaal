@@ -625,3 +625,24 @@ h2 { font-size: 25px; }
 .rslider.big.off { opacity: .45; }
 .rhint { position: absolute; left: 0; right: 0; bottom: calc(96px + env(safe-area-inset-bottom)); text-align: center; font-size: 12px; color: #d7c8ff; z-index: 4; pointer-events: none; }
 #carrom .cards.bottom { bottom: calc(190px + env(safe-area-inset-bottom)); }
+/* ---------- Helix Drop ---------- */
+#helix { background: radial-gradient(90% 60% at 50% 30%, #ff8fd1 0%, #b02a8a 35%, #3a0d5a 75%, #170a3c 100%); overflow: hidden; }
+#hxCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.hxtop { position: absolute; left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; z-index: 3; }
+.hxtop > * { pointer-events: auto; }
+.hxtop .row { pointer-events: none; } .hxtop .row > * { pointer-events: auto; }
+.hxlevel { display: flex; align-items: center; justify-content: center; gap: 10px; pointer-events: none; margin-top: -40px; }
+.hxlevel .lv { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; background: var(--goldgrad); color: #3a1d00; box-shadow: 0 3px 0 #5a3500; }
+.hxlevel .lv.next { background: #2a1058; color: #ffe17a; box-shadow: 0 0 0 2px #d99100; }
+.hxlevel .lv.hide { visibility: hidden; }
+.hxbar { width: 170px; height: 12px; border-radius: 12px; background: #12072e; overflow: hidden; box-shadow: 0 0 0 2px #d99100; }
+.hxbar i { display: block; height: 100%; width: 0; background: linear-gradient(180deg, #fff6c4, #ffd34d 35%, #d99100); transition: width .25s; }
+.hxscore { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+.hxscore b { font-size: 58px; line-height: 1; }
+.hxscore span { font-size: 15px; font-weight: 800; color: #ffe17a; min-height: 20px; text-shadow: 0 2px 0 rgba(0, 0, 0, .3); }
+#hxRace { background: rgba(28, 12, 64, .75); border-radius: 18px; padding: 6px; box-shadow: 0 0 0 1.5px #b87800; }
+.hxhelp { position: absolute; left: 0; right: 0; bottom: calc(46px + env(safe-area-inset-bottom)); text-align: center; color: #fff; font-weight: 800; font-size: 16px; z-index: 3; display: none; text-shadow: 0 2px 6px rgba(0, 0, 0, .4); }
+.hxhelp.show { display: block; animation: deckpulse 1.4s ease-in-out infinite; }
+#hxOver { z-index: 6; }
+.arch.helix .inner { background: radial-gradient(90% 70% at 50% 70%, #ff8fd1, #c2188a 55%, #4a0638); }
+.gbadge.helix { background: radial-gradient(circle at 50% 30%, #ff8fd1, #a3126f); }
