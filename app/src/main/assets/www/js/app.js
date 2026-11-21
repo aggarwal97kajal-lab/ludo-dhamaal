@@ -265,7 +265,7 @@ const MODE_TEXT = { online: 'online', bot: 'vs computer', local: 'pass & play' }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)]);
 function renderHistory() {
   $('hStats').innerHTML = statsHtml(stats(), false);
-  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'Rang Patta'], ['sudoku', 'Sudoku'], ['arrows', 'Arrows'], ['draw', 'Draw'], ['helix', 'Helix']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
+  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'UNO'], ['sudoku', 'Sudoku'], ['arrows', 'Arrows'], ['draw', 'Draw'], ['helix', 'Helix']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
   const L = history.filter(h => hFilter === 'all' || h.game === hFilter);
   if (!L.length) { $('hList').innerHTML = `<div class="panel hempty"><b>No games yet</b>Play a game and it will show up here.</div>`; return; }
   const groups = [];
@@ -285,7 +285,7 @@ $('hFilters').addEventListener('click', e => { const b = e.target.closest('[data
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
-const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta', sudoku: 'Sudoku', arrows: 'Arrow Escape', draw: 'Draw & Guess', helix: 'Helix Drop' };
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'UNO', sudoku: 'Sudoku', arrows: 'Arrow Escape', draw: 'Draw & Guess', helix: 'Helix Drop' };
 // Screens where a game is being played (music off, back button asks to leave, chat bubbles).
 const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'];
 const ARCH = '<svg class="frame" viewBox="0 0 176 228" preserveAspectRatio="none"><use href="#archOuter" fill="none" stroke="url(#g)" stroke-width="7"/><use href="#archInner" fill="none" stroke="#ffe17a" stroke-width="1.2" opacity=".8"/><circle cx="88" cy="7" r="5" fill="GEM" stroke="#ffe17a" stroke-width="2"/></svg>';
@@ -311,7 +311,7 @@ function renderHome() {
     arch('chess', '#0fb5a5', '2', '<span class="glyph w">&#9819;</span><span class="glyph g">&#9822;</span>', 'Chess', 'With move help') +
     arch('carrom', '#e5196f', '2', `<div class="cboard3">${pk('left:1px;top:1px', '#120a06')}${pk('right:1px;top:1px', '#120a06')}${pk('left:1px;bottom:1px', '#120a06')}${pk('right:1px;bottom:1px', '#120a06')}${pk('left:28px;top:28px', '#d9142e')}${pk('left:15px;top:30px', '#f6efdc')}${pk('left:41px;top:25px', '#1f1f1f')}<i style="left:30px;top:44px;width:15px;height:15px;background:#eef;border:2px solid #3d5afe"></i></div>`, 'Carrom', '3 ways to play') +
     arch('snakes', '#0fb5a5', '2-4', body(2, 2, 104), 'Snakes &amp; Ladders', 'First to 100', 'long') +
-    arch('patta', '#0fb5a5', '2-4', `<div class="minicards">${mc(0, 7, -16)}${mc(3, 'rev', -2)}${mc(2, 'd2', 14)}</div>`, 'Rang Patta', 'Colour &amp; number', '', true) +
+    arch('patta', '#0fb5a5', '2-4', `<div class="minicards">${mc(0, 7, -16)}${mc(3, 'rev', -2)}${mc(2, 'd2', 14)}</div>`, 'UNO', 'Colour &amp; number', '', true) +
     arch('sudoku', '#e5196f', '1-4', `<div class="minisd">${[5, '', 3, '', 8, '', 7, '', 1].map((n, i) => `<i class="${i === 4 ? 'on' : ''}">${n}</i>`).join('')}</div>`, 'Sudoku', 'Daily puzzle', '', true) +
     arch('arrows', '#0fb5a5', '1-4', '<svg viewBox="0 0 80 80" style="width:78px;height:78px;margin-bottom:10px;stroke:none"><g stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M14 22 H50 M44 14 L54 22 L44 30" stroke="#fff"/><path d="M30 40 V70 M22 62 L30 72 L38 62" stroke="#ffd34d"/><path d="M66 70 V36 M58 44 L66 34 L74 44" stroke="#ff5f93"/><path d="M46 52 H14 M22 44 L12 52 L22 60" stroke="#7af0ff"/></g></svg>', 'Arrow Escape', `Level ${settings.arLevel || 1}`, 'long', true) +
     arch('draw', '#ffd34d', '2-6', '<div class="minidraw"><span class="pg"><svg viewBox="0 0 100 90"><path d="M30 34 C42 20 66 24 70 44 C74 64 56 76 42 72 C26 68 22 52 30 34Z" fill="none" stroke="#e6a800" stroke-width="5"/><path d="M48 26 L52 14" stroke="#6b3a00" stroke-width="5" stroke-linecap="round"/><path d="M52 16 C60 8 72 10 74 16 C66 20 58 20 52 16Z" fill="#059669" stroke="none"/></svg></span><i>✏️</i></div>', 'Draw &amp; Guess', 'Draw, friends guess', 'long', true) +
@@ -327,7 +327,7 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : GAME === 'draw' ? '<div class="l1">Draw &amp;</div><div class="l2">Guess</div>' : GAME === 'helix' ? '<div class="l1">Helix</div><div class="l2">Drop</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">UNO</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : GAME === 'draw' ? '<div class="l1">Draw &amp;</div><div class="l2">Guess</div>' : GAME === 'helix' ? '<div class="l1">Helix</div><div class="l2">Drop</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = GAME === 'carrom' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
@@ -1503,7 +1503,7 @@ function startPatta(mode, players) {
 function enterPatta() {
   dropBoard(); dropCBoard(); dropRBoard();
   show('patta');
-  $('pRoom').textContent = 'Rang Patta · ' + (G.mode === 'online' ? 'Room ' + G.code : G.mode === 'bot' ? 'Vs computer' : 'Pass & play');
+  $('pRoom').textContent = 'UNO · ' + (G.mode === 'online' ? 'Room ' + G.code : G.mode === 'bot' ? 'Vs computer' : 'Pass & play');
   $('pMic').classList.toggle('hide', G.mode !== 'online');
   $('pChat').style.visibility = G.mode === 'online' ? 'visible' : 'hidden';
   setBadges(); syncMicButtons(); syncSpeaker();
@@ -1524,7 +1524,7 @@ function renderPatta() {
   $('pOpps').innerHTML = pattaSeats().map(([i, at]) => {
     const p = s.players[i], n = counts[i], lp = G.mode === 'online' ? G.lobby.find(x => x.pid === p.id) : null;
     const speaking = G.speaking && G.speaking.has(p.id), micOn = lp ? lp.mic : false;
-    const st = p.left || (lp && lp.left) ? 'Left' : lp && !lp.connected ? 'No network' : n === 1 ? 'EK!' : `${n} cards`;
+    const st = p.left || (lp && lp.left) ? 'Left' : lp && !lp.connected ? 'No network' : n === 1 ? 'UNO!' : `${n} cards`;
     return `<div class="popp ${at} ${s.turn === i && !s.over ? 'turn' : ''} ${p.left ? 'away' : ''}" data-pid="${p.id}">
       ${avatar(p.look, tint(p), speaking ? 'speak' : '', p.id)}
       <span class="nm">${esc(p.name)}</span>
@@ -1637,9 +1637,9 @@ async function pattaAnim(ev, fromEl) {
     const n = Math.min(ev.n || 1, 4);
     for (let k = 0; k < n; k++) { sfx('step'); await flyCard('<span class="pc back"><span class="f"></span></span>', $('pDeck'), seatEl(ev.who), 220); }
     G.newIds = ev.ids || null;
-    if (ev.t === 'caught') { const v = s.players[ev.who]; toast(ev.who === pattaMe() ? 'Caught! You forgot EK! +2' : `${v.name} forgot EK! +2`, '#E5196F'); buzz([100, 50, 100]); }
+    if (ev.t === 'caught') { const v = s.players[ev.who]; toast(ev.who === pattaMe() ? 'Caught! You forgot UNO! +2' : `${v.name} forgot UNO! +2`, '#E5196F'); buzz([100, 50, 100]); }
     else if (ev.forced) note(`${s.players[ev.who].name} picked up ${ev.n}`);
-  } else if (ev.t === 'ek') { toast(`${ev.who === pattaMe() && G.mode !== 'local' ? 'You' : s.players[ev.who].name}: EK!`, '#E5196F'); sfx('pop'); }
+  } else if (ev.t === 'ek') { toast(`${ev.who === pattaMe() && G.mode !== 'local' ? 'You' : s.players[ev.who].name}: UNO!`, '#E5196F'); sfx('pop'); }
 }
 function nextPatta() {
   if (!G || G.mode === 'online' || !G.s || G.s.game !== 'patta') return;

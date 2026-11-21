@@ -658,7 +658,7 @@ function invitePage(code) {
   const intent = `intent://room/${code}#Intent;scheme=pitara;package=${PKG};end`;
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Join my Pitara room ${code}</title>
-<meta property="og:title" content="Join my Pitara game room ${code}"><meta property="og:description" content="Tap to play Ludo, Chess, Carrom and Snakes &amp; Ladders with me on Pitara.">
+<meta property="og:title" content="Join my Pitara game room ${code}"><meta property="og:description" content="Tap to play Ludo, Chess, Carrom, UNO and more with me on Pitara.">
 <style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#160D3D;color:#fff;font-family:system-ui,sans-serif;text-align:center}
 .c{padding:28px;max-width:360px}h1{font-size:44px;margin:0;color:#FFC21A;text-shadow:0 4px 0 #8a5a00}.code{font-size:40px;font-weight:800;letter-spacing:6px;background:#24145e;border:3px solid #3b2a8a;border-radius:18px;padding:10px 18px;margin:18px 0}
 a.b{display:block;margin:12px 0;padding:16px;border-radius:999px;font-weight:800;font-size:18px;text-decoration:none}.g{background:#FFC21A;color:#3a2600}.o{background:#24145e;color:#fff;border:2px solid #3b2a8a}p{color:#b9b0e8;line-height:1.5}</style></head>

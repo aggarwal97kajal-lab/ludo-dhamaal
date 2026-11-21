@@ -646,3 +646,4 @@ h2 { font-size: 25px; }
 #hxOver { z-index: 6; }
 .arch.helix .inner { background: radial-gradient(90% 70% at 50% 70%, #ff8fd1, #c2188a 55%, #4a0638); }
 .gbadge.helix { background: radial-gradient(circle at 50% 30%, #ff8fd1, #a3126f); }
+.ekbtn { font-size: 19px; padding: 0 12px; }
