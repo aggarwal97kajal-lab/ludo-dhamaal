@@ -457,8 +457,8 @@ h2 { font-size: 25px; }
 .racer .av { width: 34px; height: 34px; padding: 2px; }
 .racer .nm { font-size: 12.5px; font-weight: 800; line-height: 1; }
 .racer .st { font-size: 10.5px; color: #cdbdf5; line-height: 1.1; }
-.rbar { display: block; height: 7px; border-radius: 7px; background: #12072e; overflow: hidden; margin: 2px 0; }
-.rbar i { display: block; height: 100%; background: linear-gradient(180deg, #fff6c4, #ffd34d 35%, #d99100); transition: width .4s; }
+.racebar { display: block; height: 7px; border-radius: 7px; background: #12072e; overflow: hidden; margin: 2px 0; }
+.racebar i { display: block; height: 100%; background: linear-gradient(180deg, #fff6c4, #ffd34d 35%, #d99100); transition: width .4s; }
 .racer.out { opacity: .45; }
 .sinfo { display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 700; color: #d7c8ff; padding: 0 4px; }
 .sinfo b { color: #ffe17a; }
@@ -608,3 +608,19 @@ h2 { font-size: 25px; }
 .minidraw svg { width: 100%; height: 100%; stroke: none; }
 .minidraw i { position: absolute; right: -10px; bottom: -6px; font-size: 32px; font-style: normal; transform: rotate(10deg); }
 .gbadge.draw { background: radial-gradient(circle at 50% 30%, #ff8fd1, #a3126f); }
+.biglogo { width: 170px; height: 170px; border-radius: 38px; box-shadow: 0 14px 44px rgba(255, 194, 26, .45); }
+/* Carrom: big striker slider right under the board */
+#carrom .rbar { flex-direction: row; align-items: center; gap: 10px; padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); }
+#carrom .rbar .micbtn, #carrom .rbar .iconbtn.big { width: 52px; height: 52px; }
+#carrom .rbar .helpsw { margin: 0; gap: 2px; align-items: center; font-size: 11.5px; flex-shrink: 0; }
+#carrom .tbar { width: 100%; max-width: 150px; }
+.rslider.big { position: absolute; left: 18px; right: 18px; bottom: calc(118px + env(safe-area-inset-bottom)); height: 60px; z-index: 4; touch-action: none; }
+.rslider.big .track { left: 0; right: 0; top: 15px; height: 30px; border-radius: 30px; background: linear-gradient(180deg, #3a1866, #1c0c40);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .7), 0 0 0 2.5px #d99100, 0 0 0 4px #fff6c4, 0 8px 18px rgba(0, 0, 0, .45); }
+.rslider.big .track::before { content: ''; position: absolute; left: 20px; right: 20px; top: 13px; height: 4px; border-radius: 4px; background: repeating-linear-gradient(90deg, #ffd34d 0 2px, transparent 2px 14px); opacity: .6; }
+.rslider.big .knob { top: 0; width: 60px; height: 60px; margin-left: -30px; border: none; transition: left .05s;
+  background: radial-gradient(circle at 35% 35%, #fff, #e8e4ff 45%, #9fa8ff 75%, #3d5afe); box-shadow: 0 0 0 4px #fff6c4, 0 0 0 7px #d99100, 0 8px 16px rgba(0, 0, 0, .55), 0 0 24px rgba(255, 211, 77, .5); }
+.rslider.big .knob::after { content: '⟷'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #3d5afe; font-size: 22px; font-weight: 800; }
+.rslider.big.off { opacity: .45; }
+.rhint { position: absolute; left: 0; right: 0; bottom: calc(96px + env(safe-area-inset-bottom)); text-align: center; font-size: 12px; color: #d7c8ff; z-index: 4; pointer-events: none; }
+#carrom .cards.bottom { bottom: calc(190px + env(safe-area-inset-bottom)); }

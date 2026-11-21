@@ -1203,9 +1203,9 @@ function placeCarromStriker() {
   rboard.setStriker(sp.x, sp.y, !s.over);
   rboard.bob = canShoot();
   // Slider: the knob follows the striker (mirrored when the board is turned around).
-  const r = $('rSlider').getBoundingClientRect(), f = (sp.x - CLO) / (CHI - CLO);
+  const r = $('rSlider').getBoundingClientRect(), f = (sp.x - CLO) / (CHI - CLO), h = KNOB_HALF;
   const ff = rboard.flipped() ? 1 - f : f;
-  $('rKnob').style.left = (24 + ff * Math.max(0, r.width - 48)) + 'px';
+  $('rKnob').style.left = (h + ff * Math.max(0, r.width - 2 * h)) + 'px';
   $('rSlider').classList.toggle('off', !canShoot());
 }
 function renderCarromCards() {
@@ -1351,10 +1351,11 @@ $('rView').onclick = () => {
 };
 function showResetView() { $('rReset').classList.toggle('show', !!(rboard && rboard.moved())); }
 $('rReset').onclick = () => { sfx('click'); if (rboard) rboard.resetView(); $('rReset').classList.remove('show'); setTimeout(placeCarromStriker, 400); };
+const KNOB_HALF = 30;
 function slideCarrom(e) {
   if (!canShoot()) return;
   const r = $('rSlider').getBoundingClientRect();
-  let f = Math.min(1, Math.max(0, (e.clientX - r.left - 24) / Math.max(1, r.width - 48)));
+  let f = Math.min(1, Math.max(0, (e.clientX - r.left - KNOB_HALF) / Math.max(1, r.width - 2 * KNOB_HALF)));
   if (rboard && rboard.flipped()) f = 1 - f;
   G.sx = CLO + f * (CHI - CLO); G.aim = null; rboard.hideAim(); placeCarromStriker();
 }
@@ -1924,7 +1925,7 @@ function renderRace() {
   $('sdRacers').innerHTML = s.players.map(p => {
     const lp = G.lobby.find(x => x.pid === p.id), speaking = G.speaking && G.speaking.has(p.id), f = Math.round(p.filled / s.total * 100);
     return `<div class="racer ${p.out || p.left ? 'out' : ''}" data-pid="${p.id}">${avatar(p.look, p.tint != null ? p.tint : 0, speaking ? 'speak' : '', p.id)}
-      <div class="col grow minw0"><span class="nm">${esc(p.id === pid ? 'You' : p.name)}${lp && lp.mic ? ' 🎙️' : ''}</span><span class="rbar"><i style="width:${f}%"></i></span><span class="st">${p.left ? 'Left' : p.out ? 'Out (3 mistakes)' : `${f}% · ${p.mistakes}/3`}</span></div></div>`;
+      <div class="col grow minw0"><span class="nm">${esc(p.id === pid ? 'You' : p.name)}${lp && lp.mic ? ' 🎙️' : ''}</span><span class="racebar"><i style="width:${f}%"></i></span><span class="st">${p.left ? 'Left' : p.out ? 'Out (3 mistakes)' : `${f}% · ${p.mistakes}/3`}</span></div></div>`;
   }).join('');
 }
 function onRaceState(m) {
@@ -2083,7 +2084,7 @@ function renderArRace() {
   $('arRacers').innerHTML = s.players.map(p => {
     const lp = G.lobby.find(x => x.pid === p.id), speaking = G.speaking && G.speaking.has(p.id), f = Math.round(p.filled / s.total * 100);
     return `<div class="racer ${p.out || p.left ? 'out' : ''}" data-pid="${p.id}">${avatar(p.look, p.tint != null ? p.tint : 0, speaking ? 'speak' : '', p.id)}
-      <div class="col grow minw0"><span class="nm">${esc(p.id === pid ? 'You' : p.name)}${lp && lp.mic ? ' 🎙️' : ''}</span><span class="rbar"><i style="width:${f}%"></i></span><span class="st">${p.left ? 'Left' : p.out ? 'Out of hearts' : `${f}% · ${'❤️'.repeat(Math.max(0, AR_HEARTS - p.mistakes))}`}</span></div></div>`;
+      <div class="col grow minw0"><span class="nm">${esc(p.id === pid ? 'You' : p.name)}${lp && lp.mic ? ' 🎙️' : ''}</span><span class="racebar"><i style="width:${f}%"></i></span><span class="st">${p.left ? 'Left' : p.out ? 'Out of hearts' : `${f}% · ${'❤️'.repeat(Math.max(0, AR_HEARTS - p.mistakes))}`}</span></div></div>`;
   }).join('');
 }
 function onArState(m) {
