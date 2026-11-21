@@ -5,6 +5,7 @@ import { newSnakes, snakeRoll, snakePass } from '../../app/src/main/assets/www/j
 import { newCarrom, applyShot, carromPass, carromLeft, cleanShot } from '../../app/src/main/assets/www/js/carrom.js';
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaLeft, viewFor } from '../../app/src/main/assets/www/js/patta.js';
 const PATTA_MS = 20000;
+import { makeLevel as arrowLevel, checkRun as arrowRun, HEARTS as ARROW_HEARTS } from '../../app/src/main/assets/www/js/arrows.js';
 import { makePuzzle, checkSolved, LEVELS as SUDOKU_LEVELS, MAX_MISTAKES } from '../../app/src/main/assets/www/js/sudoku.js';
 const CARROM_MS = 20000;
 
@@ -20,7 +21,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku'], v: 8 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows'], v: 8 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/.well-known/assetlinks.json') return json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: PKG, sha256_cert_fingerprints: CERTS } }]);
     const link = url.pathname.match(/^\/r\/([A-Za-z0-9]{5})\/?$/);
@@ -93,7 +94,7 @@ export class Room {
       if (!r) return;
       Object.assign(this, { players: r.players || [], host: r.host, s: r.s, claimed: r.claimed, code: r.code, moves: r.moves || [], chat: r.chat || [], game: r.game || 'ludo', mode: r.mode || 'classic', chessRound: r.chessRound || 0 });
       this.players.forEach(p => { p.connected = false; });
-      if (this.s && !this.s.over && this.s.game !== 'sudoku') { if (this.s.game === 'chess') this.armChess(); else this.armTurn(); }
+      if (this.s && !this.s.over && this.s.game !== 'sudoku' && this.s.game !== 'arrows') { if (this.s.game === 'chess') this.armChess(); else this.armTurn(); }
       this.carromRound = r.carromRound || 0;
       this.armEmpty();
     } catch (e) { /* start fresh */ }
@@ -152,6 +153,7 @@ export class Room {
       case 'cmove': this.doChessMove(ws, me, m); break;
       case 'rshot': this.doCarromShot(ws, me, m); break;
       case 'sprog': case 'sdone': this.doSudoku(me, m); break;
+      case 'aprog': case 'adone': this.doArrows(me, m); break;
       case 'pplay': case 'pdraw': case 'ppass': case 'pek': case 'pcatch': this.doPatta(ws, me, m); break;
       case 'chat': {
         const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -186,7 +188,7 @@ export class Room {
       if (this.s) return this.send(ws, { t: 'err', msg: 'This game has already started.', fatal: true });
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
       // The person who creates the room picks the game. Everyone who joins plays that game.
-      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
+      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'arrows' ? 'race' : this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
       const max = this.game === 'chess' || this.game === 'carrom' ? 2 : 4;
       if (this.players.length >= max) return this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
       p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false };
@@ -204,7 +206,7 @@ export class Room {
     for (const [who, img] of this.photos) if (who !== pid) this.send(ws, { t: 'photo', pid: who, img });
     if (this.s && this.s.game === 'chess') this.send(ws, { t: 'sync', s: this.s, left: this.chessLeftMs() });
     else if (this.s && this.s.game === 'carrom') this.send(ws, { t: 'sync', s: this.s, turnEnds: this.turnEnds });
-    else if (this.s && this.s.game === 'sudoku') this.send(ws, { t: 'sync', s: this.s });
+    else if (this.s && (this.s.game === 'sudoku' || this.s.game === 'arrows')) this.send(ws, { t: 'sync', s: this.s });
     else if (this.s && this.s.game === 'patta') this.send(ws, { t: 'sync', s: viewFor(this.s, this.s.players.findIndex(x => x.id === pid)), turnEnds: this.turnEnds });
     else if (this.s) this.send(ws, { t: 'sync', s: this.s, moves: this.s.rolled ? this.moves : [], turnEnds: this.turnEnds });
   }
@@ -219,9 +221,9 @@ export class Room {
       const gp = this.s.players.find(x => x.id === pid);
       const ci = this.s.game === 'carrom' ? this.s.players.findIndex(x => x.id === pid) : -1;
       const pi = this.s.game === 'patta' ? this.s.players.findIndex(x => x.id === pid) : -1;
-      if (this.s.game === 'sudoku' && !this.s.over) {
-        const q = this.s.players.find(x => x.id === pid);
-        if (q) { q.left = true; this.sudokuCheckEnd(); this.s.seq++; this.all({ t: this.s.over ? 'send' : 'sprog', s: this.s }); }
+      if ((this.s.game === 'sudoku' || this.s.game === 'arrows') && !this.s.over) {
+        const q = this.s.players.find(x => x.id === pid), ar = this.s.game === 'arrows';
+        if (q) { q.left = true; this.sudokuCheckEnd(); this.s.seq++; this.all({ t: this.s.over ? (ar ? 'aend' : 'send') : (ar ? 'aprog' : 'sprog'), s: this.s }); }
       } else if (pi >= 0 && !this.s.over) {
         const wasTurn = this.s.turn === pi;
         pattaLeft(this.s, pi);
@@ -299,6 +301,17 @@ export class Room {
       this.lobby();
       return;
     }
+    if (this.game === 'arrows') {
+      // A race on the same level: a mid-size picture.
+      const b = new Uint32Array(1); crypto.getRandomValues(b);
+      const seed = 1 + b[0] % 100000, level = 13 + b[0] % 7, L = arrowLevel(level, seed);
+      this.s = { game: 'arrows', level, seed, total: L.arrows.length, over: false, winner: null, reason: '', seq: 0, startAt: Date.now(),
+        players: ready.map(q => ({ id: q.pid, name: q.name, look: q.look, tint: q.tint, filled: 0, mistakes: 0, out: false, left: false })) };
+      this.clearTurn();
+      this.all({ t: 'start', s: this.s });
+      this.lobby();
+      return;
+    }
     if (this.game === 'sudoku') {
       // Everyone races on the same puzzle.
       const b = new Uint32Array(1); crypto.getRandomValues(b);
@@ -339,12 +352,27 @@ export class Room {
       p.mistakes = Math.max(p.mistakes, Math.min(MAX_MISTAKES, Number(m.mistakes) || 0));
       if (p.mistakes >= MAX_MISTAKES) p.out = true;
       this.sudokuCheckEnd();
-      s.seq++; this.all({ t: 'sprog', s });
+      s.seq++; this.all({ t: s.over ? 'send' : 'sprog', s });
     } else if (m.t === 'sdone') {
       if (!checkSolved(s.seed, s.level, m.grid)) return;
       p.filled = s.total; p.time = Date.now() - s.startAt;
       s.over = true; s.winner = pid; s.reason = 'solved'; s.seq++;
       this.all({ t: 'send', s });
+    }
+  }
+  doArrows(pid, m) {
+    const s = this.s; if (!s || s.game !== 'arrows' || s.over) return;
+    const p = s.players.find(x => x.id === pid); if (!p || p.out || p.left) return;
+    if (m.t === 'aprog') {
+      p.filled = Math.max(0, Math.min(s.total, Number(m.filled) || 0));
+      p.mistakes = Math.max(p.mistakes, Math.min(ARROW_HEARTS, Number(m.mistakes) || 0));
+      if (p.mistakes >= ARROW_HEARTS) p.out = true;
+      this.sudokuCheckEnd();
+      s.seq++; this.all({ t: s.over ? 'aend' : 'aprog', s });
+    } else if (m.t === 'adone') {
+      if (!arrowRun(s.level, s.seed, m.order)) return;
+      p.filled = s.total; s.over = true; s.winner = pid; s.reason = 'solved'; s.seq++;
+      this.all({ t: 'aend', s });
     }
   }
   // Everyone else is out (3 mistakes or left): the best one still playing wins; nobody left: most cells wins.

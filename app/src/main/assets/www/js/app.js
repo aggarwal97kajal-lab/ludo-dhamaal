@@ -10,6 +10,7 @@ import { Carrom3D } from './carrom3d.js';
 import { newCarrom, applyShot, carromBot, carromPass, strikerSpot, forwardOk, NEED as CNEED, BASE as CBASE, LO as CLO, HI as CHI } from './carrom.js';
 import { newSnakes, snakeRoll, snakePass, GOAL } from './snakes.js';
 import { Chess } from './chesslib.js';
+import { makeLevel as arrowLevel, blockerOf, isFree as arrowFree, DIR as ADIR, HEARTS as AR_HEARTS } from './arrows.js';
 import { makePuzzle, dailySeed, peers as sdPeers, LEVELS as SD_LEVELS, LEVEL_NAME as SD_NAME, MAX_MISTAKES as SD_MAX } from './sudoku.js';
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaBot, playable as pattaPlayable, canPlay as pattaCanPlay, top as pattaTop, label as pattaLabel, ranking as pattaRanking, COLORS as PCOLORS } from './patta.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
@@ -29,7 +30,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('ld:' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 };
 let profile = store.get('profile', null);
-const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', carrom3d: false, striker: 0, sdLevel: 'medium' }, store.get('settings', {}));
+const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', carrom3d: false, striker: 0, sdLevel: 'medium', arLevel: 1 }, store.get('settings', {}));
 // Volumes 0-100 (mic: 50 = normal, 100 = twice as loud).
 const vol = Object.assign({ master: 80, music: 60, sfx: 80, win: 90, voice: 100, mic: 50, vib: 70 }, store.get('vol', {}));
 prefs.vol = vol;
@@ -258,7 +259,7 @@ const MODE_TEXT = { online: 'online', bot: 'vs computer', local: 'pass & play' }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)]);
 function renderHistory() {
   $('hStats').innerHTML = statsHtml(stats(), false);
-  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'Rang Patta'], ['sudoku', 'Sudoku']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
+  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'Rang Patta'], ['sudoku', 'Sudoku'], ['arrows', 'Arrows']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
   const L = history.filter(h => hFilter === 'all' || h.game === hFilter);
   if (!L.length) { $('hList').innerHTML = `<div class="panel hempty"><b>No games yet</b>Play a game and it will show up here.</div>`; return; }
   const groups = [];
@@ -278,9 +279,9 @@ $('hFilters').addEventListener('click', e => { const b = e.target.closest('[data
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
-const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta', sudoku: 'Sudoku' };
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta', sudoku: 'Sudoku', arrows: 'Arrow Escape' };
 // Screens where a game is being played (music off, back button asks to leave, chat bubbles).
-const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku'];
+const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku', 'arrows'];
 const ARCH = '<svg class="frame" viewBox="0 0 176 228" preserveAspectRatio="none"><use href="#archOuter" fill="none" stroke="url(#g)" stroke-width="7"/><use href="#archInner" fill="none" stroke="#ffe17a" stroke-width="1.2" opacity=".8"/><circle cx="88" cy="7" r="5" fill="GEM" stroke="#ffe17a" stroke-width="2"/></svg>';
 function renderHome() {
   $('homeAv').innerHTML = myPhoto ? `<div class="in photo" style="background:${UI[profile.color]}"><img src="${myPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
@@ -306,7 +307,8 @@ function renderHome() {
     arch('snakes', '#0fb5a5', '2-4', body(2, 2, 104), 'Snakes &amp; Ladders', 'First to 100', 'long') +
     arch('patta', '#0fb5a5', '2-4', `<div class="minicards">${mc(0, 7, -16)}${mc(3, 'rev', -2)}${mc(2, 'd2', 14)}</div>`, 'Rang Patta', 'Colour &amp; number', '', true) +
     arch('sudoku', '#e5196f', '1-4', `<div class="minisd">${[5, '', 3, '', 8, '', 7, '', 1].map((n, i) => `<i class="${i === 4 ? 'on' : ''}">${n}</i>`).join('')}</div>`, 'Sudoku', 'Daily puzzle', '', true) +
-    arch('soon', '#ffd34d', '', '<div style="font-size:40px;margin-bottom:22px">✨</div>', 'Coming soon', 'Arrows, Draw &amp; Guess', 'long', false, true);
+    arch('arrows', '#0fb5a5', '1-4', '<svg viewBox="0 0 80 80" style="width:78px;height:78px;margin-bottom:10px;stroke:none"><g stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M14 22 H50 M44 14 L54 22 L44 30" stroke="#fff"/><path d="M30 40 V70 M22 62 L30 72 L38 62" stroke="#ffd34d"/><path d="M66 70 V36 M58 44 L66 34 L74 44" stroke="#ff5f93"/><path d="M46 52 H14 M22 44 L12 52 L22 60" stroke="#7af0ff"/></g></svg>', 'Arrow Escape', `Level ${settings.arLevel || 1}`, 'long', true) +
+    arch('soon', '#ffd34d', '', '<div style="font-size:40px;margin-bottom:22px">✨</div>', 'Coming soon', 'Draw &amp; Guess', 'long', false, true);
   music(true);
 }
 $('homeAv').onclick = () => { sfx('click'); openProfile(); };
@@ -318,7 +320,7 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = GAME === 'carrom' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
@@ -340,6 +342,7 @@ function renderModes() {
     <div class="col grow"><span class="t">${m[1]}</span><span class="s">${m[2]}</span></div>
     <div class="ppl">${typeof m[4] === 'string' ? m[4] : m[4].map(i => body(i, i, GAME === 'carrom' ? 58 : 82)).join('')}</div></button>`).join('');
   if (GAME === 'sudoku') { $('modes').innerHTML = sudokuModesHtml(); music(true); return; }
+  if (GAME === 'arrows') { $('modes').innerHTML = arrowModesHtml(); music(true); return; }
   $('modes').innerHTML = GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : list;
   music(true);
 }
@@ -368,6 +371,7 @@ function carromPic(mode) {
 $('modes').addEventListener('click', e => {
   const lv = e.target.closest('[data-sdlevel]'); if (lv) { settings.sdLevel = lv.dataset.sdlevel; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const sm = e.target.closest('[data-sdmode]'); if (sm) { sfx('click'); sudokuMode(sm.dataset.sdmode); return; }
+  const am = e.target.closest('[data-armode]'); if (am) { sfx('click'); arrowMode(am.dataset.armode); return; }
   const ct = e.target.closest('[data-ctype]'); if (ct) { settings.carromMode = ct.dataset.ctype; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const sk = e.target.closest('[data-stk]'); if (sk) { settings.striker = +sk.dataset.stk; store.set('settings', settings); sfx('click'); if (rboard) rboard.setStrikerStyle(settings.striker); renderModes(); return; }
   const b = e.target.closest('[data-mode]'); if (!b) return; sfx('click');
@@ -491,6 +495,7 @@ function renderCards() {
   if (!G) return;
   if (G.s && G.s.game === 'patta') return renderPatta();
   if (G.s && G.s.game === 'sudoku') return renderRace();
+  if (G.s && G.s.game === 'arrows') return renderArRace();
   if (G.s && G.s.game === 'chess') return renderChessCards();
   if (G.s && G.s.game === 'carrom') return renderCarromCards();
   const s = G.s;
@@ -651,7 +656,7 @@ const SPK_ON = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path
 const SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>';
 function syncSpeaker() {
   const on = settings.sound || settings.music;
-  ['gameSound', 'cSound', 'rSound', 'pSound', 'sdSound'].forEach(id => {
+  ['gameSound', 'cSound', 'rSound', 'pSound', 'sdSound', 'arSound'].forEach(id => {
     $(id).innerHTML = on ? SPK_ON : SPK_OFF;
     $(id).setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
     $(id).classList.toggle('off', !on);
@@ -668,6 +673,7 @@ $('gameSound').onclick = () => {
 syncSpeaker();
 function leaveGame() {
   if (G && G.game === 'sudoku' && G.mode !== 'online') { saveSudoku(); G = null; show('gamehome'); return; }
+  if (G && G.game === 'arrows' && G.mode !== 'online') { G = null; show('gamehome'); return; }
   confirmBox('Leave the game?', G && G.mode === 'online' ? 'You can come back with the same room code while the game is on.' : 'This game will end.', 'Leave', 'Stay', () => {
     if (G && G.mode === 'online') endOnline();
     G = null; show('gamehome');
@@ -1941,6 +1947,160 @@ function onRaceEnd(m) {
   setTimeout(() => { show('win'); startDance(); }, 600);
 }
 
+// ---------- Arrow Escape ----------
+function arrowModesHtml() {
+  const lv = settings.arLevel || 1;
+  return `<div class="armini"><svg viewBox="0 0 80 80"><g stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M14 22 H50 M44 14 L54 22 L44 30" stroke="#fff"/><path d="M30 40 V70 M22 62 L30 72 L38 62" stroke="#ffd34d"/><path d="M66 70 V36 M58 44 L66 34 L74 44" stroke="#ff5f93"/><path d="M46 52 H14 M22 44 L12 52 L22 60" stroke="#7af0ff"/></g></svg></div>
+    <button class="sdmode gold" data-armode="play"><span class="col grow"><b>Play level ${lv}</b><small>${lv > 1 ? `${lv - 1} level${lv > 2 ? 's' : ''} cleared` : 'Clear the picture, one arrow at a time'}</small></span></button>
+    <button class="sdmode ruby" data-armode="online"><span class="col grow"><b>Race a friend</b><small>Same level for both, talk on mic. First to clear wins</small></span></button>
+    <button class="sdmode blue" data-armode="join"><span class="col grow"><b>Join a race</b><small>Enter your friend’s room code</small></span></button>
+    ${lv > 1 ? '<button class="sdmode plum" data-armode="pick"><span class="col grow"><b>Play an old level</b><small>Go back to any level you have cleared</small></span></button>' : ''}`;
+}
+function arrowMode(m) {
+  if (m === 'play') return startArrows(settings.arLevel || 1);
+  if (m === 'online') return createRoom();
+  if (m === 'join') { $('joinCode').value = ''; $('joinErr').textContent = ''; show('join'); return; }
+  if (m === 'pick') {
+    const lv = settings.arLevel || 1;
+    modal(`<h3>Pick a level</h3><div class="lvgrid">${Array.from({ length: lv }, (_, i) => `<button data-lv="${i + 1}" class="${i + 1 === lv ? 'on' : ''}">${i + 1}</button>`).join('')}</div>`);
+    $('modalBox').querySelectorAll('[data-lv]').forEach(b => b.onclick = () => { closeModal(); startArrows(+b.dataset.lv); });
+  }
+}
+function startArrows(level, seed) {
+  G = { mode: 'solo', game: 'arrows' };
+  G.L = arrowLevel(level, seed); G.gone = new Set(); G.order = []; G.hearts = AR_HEARTS; G.hints = 3; G.level = level; G.over = false; G.hint = null;
+  enterArrows();
+}
+function enterArrows() {
+  dropBoard(); dropCBoard(); dropRBoard();
+  show('arrows');
+  $('arRace').classList.toggle('show', G.mode === 'online');
+  $('arRestart').style.display = G.mode === 'online' ? 'none' : '';
+  $('arOver').classList.remove('show');
+  setBadges(); syncMicButtons(); syncSpeaker();
+  drawArrows(); renderArrows(); music(false);
+}
+const ARW = 10;
+function arrowPath(a) {
+  const pts = a.cells.map(([r, c]) => [c * ARW + ARW / 2, r * ARW + ARW / 2]);
+  const [dr, dc] = ADIR[a.dir], len = a.cells.length;
+  const [x1, y1] = pts[0], [x2, y2] = pts[pts.length - 1];
+  const ex = len === 1 ? 3.3 : 2.6;
+  const sx = x1 - dc * ex, sy = y1 - dr * ex, hx = x2 + dc * ex, hy = y2 + dr * ex, px = -dr, py = dc;
+  return `M${sx} ${sy} L${hx} ${hy} M${hx - dc * 2.8 + px * 2.6} ${hy - dr * 2.8 + py * 2.6} L${hx} ${hy} L${hx - dc * 2.8 - px * 2.6} ${hy - dr * 2.8 - py * 2.6}`;
+}
+function drawArrows() {
+  const L = G.L, W = L.n * ARW;
+  // Faint dots where the picture is, so you can see the shape.
+  let dots = ''; L.mask.forEach((m, i) => { if (m) dots += `<circle cx="${(i % L.n) * ARW + 5}" cy="${Math.floor(i / L.n) * ARW + 5}" r="0.9" fill="rgba(255,255,255,.18)" stroke="none"/>`; });
+  $('arBoard').innerHTML = `<svg viewBox="-2 -2 ${W + 4} ${W + 4}" id="arSvg">${dots}${L.arrows.map(a => {
+    const xs = a.cells.map(c => c[1]), ys = a.cells.map(c => c[0]);
+    const x = Math.min(...xs) * ARW, y = Math.min(...ys) * ARW, w = (Math.max(...xs) - Math.min(...xs) + 1) * ARW, h = (Math.max(...ys) - Math.min(...ys) + 1) * ARW;
+    return `<g class="arw" data-a="${a.id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="transparent" stroke="none"/><path d="${arrowPath(a)}" stroke="${a.color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>`;
+  }).join('')}</svg>`;
+}
+function renderArrows() {
+  if (!G || !G.L || current !== 'arrows') return;
+  const L = G.L, left = L.arrows.length - G.gone.size;
+  $('arTitle').textContent = G.mode === 'online' ? 'Arrow race' : `Level ${G.level}`;
+  $('arLeft').innerHTML = `<b>${G.gone.size}</b> of ${L.arrows.length} arrows gone · ${L.shape}`;
+  $('arHearts').innerHTML = Array.from({ length: AR_HEARTS }, (_, i) => `<i class="${i < G.hearts ? 'on' : ''}">${i < G.hearts ? '❤️' : '🤍'}</i>`).join('');
+  $('arProg').style.width = (G.gone.size / L.arrows.length * 100) + '%';
+  $('arHintN').textContent = G.hints; $('arHint').classList.toggle('none', !G.hints);
+  document.querySelectorAll('#arSvg .arw').forEach(g => { const id = +g.dataset.a; g.classList.toggle('gone', G.gone.has(id)); g.classList.toggle('hint', G.hint === id); });
+  void left;
+  if (G.mode === 'online') renderArRace();
+}
+$('arBoard').addEventListener('click', e => {
+  const g = e.target.closest('.arw'); if (!g || !G || !G.L || G.over || (G.mode === 'online' && G.out)) return;
+  const id = +g.dataset.a; if (G.gone.has(id) || g.classList.contains('moving')) return;
+  const L = G.L, a = L.arrows[id], [dr, dc] = ADIR[a.dir], blk = blockerOf(L, G.gone, a);
+  if (G.hint === id) G.hint = null;
+  if (!blk) {
+    G.gone.add(id); G.order.push(id); sfx('hop');
+    const far = (L.n + 2) * ARW;
+    g.classList.add('moving');
+    const an = g.animate([{ transform: 'translate(0,0)', opacity: 1 }, { transform: `translate(${dc * far}px, ${dr * far}px)`, opacity: 0 }], { duration: 420, easing: 'cubic-bezier(.5,0,.8,.6)', fill: 'forwards' });
+    an.onfinish = () => { g.classList.remove('moving'); g.classList.add('gone'); };
+    renderArrows();
+    if (G.mode === 'online') G.net.send({ t: 'aprog', filled: G.gone.size, mistakes: AR_HEARTS - G.hearts });
+    if (G.gone.size === L.arrows.length) { G.over = true; setTimeout(arrowsCleared, 500); }
+  } else {
+    // Bump into the arrow in the way and come back. Costs a heart.
+    const d = (blk.steps - 1) * ARW + 2;
+    g.classList.add('moving');
+    const an = g.animate([{ transform: 'translate(0,0)' }, { transform: `translate(${dc * d}px, ${dr * d}px)`, offset: 0.45 }, { transform: 'translate(0,0)' }], { duration: 480, easing: 'ease-in-out' });
+    an.onfinish = () => g.classList.remove('moving');
+    const bg = document.querySelector(`#arSvg [data-a="${blk.id}"]`); if (bg) { bg.classList.remove('hit'); void bg.getBoundingClientRect(); bg.classList.add('hit'); }
+    G.hearts--; sfx('capture'); buzz([80, 40, 80]);
+    renderArrows();
+    if (G.mode === 'online') G.net.send({ t: 'aprog', filled: G.gone.size, mistakes: AR_HEARTS - G.hearts });
+    if (G.hearts <= 0) { G.over = true; setTimeout(arrowsFailed, 600); }
+  }
+});
+$('arHint').onclick = () => {
+  if (!G || !G.L || G.over) return;
+  if (!G.hints) { toast('No hints left on this level', '#3A2490'); return; }
+  const f = G.L.arrows.find(a => !G.gone.has(a.id) && arrowFree(G.L, G.gone, a.id)); if (!f) return;
+  G.hints--; G.hint = f.id; sfx('pop'); renderArrows();
+};
+$('arRestart').onclick = () => { if (!G || G.mode === 'online') return; sfx('click'); startArrows(G.level); };
+$('arBack').onclick = () => leaveGame();
+$('arSound').onclick = () => $('gameSound').onclick();
+$('arChat').onclick = () => { sfx('click'); openChat(); };
+function arOverlay(html) { $('arOverBox').innerHTML = html; $('arOver').classList.add('show'); }
+function arrowsCleared() {
+  if (G.mode === 'online') { G.net.send({ t: 'adone', order: G.order }); return; }
+  const stars = G.hearts;
+  if (G.level >= (settings.arLevel || 1)) { settings.arLevel = G.level + 1; store.set('settings', settings); }
+  sfx('win'); buzz([60, 40, 120]);
+  arOverlay(`<div class="stars">${[1, 2, 3].map(i => `<i class="${i <= stars ? 'on' : ''}">★</i>`).join('')}</div><b class="goldtxt big">Level ${G.level} cleared!</b><span>${stars === 3 ? 'Perfect, no bumps!' : `${AR_HEARTS - stars} bump${AR_HEARTS - stars > 1 ? 's' : ''}`}</span>
+    <button class="btn gold w100" id="arNext">Next level</button><button class="btn ghost w100" id="arHome">Back</button>`);
+  $('arNext').onclick = () => { sfx('click'); startArrows(G.level + 1); };
+  $('arHome').onclick = () => { G = null; show('gamehome'); };
+}
+function arrowsFailed() {
+  if (G.mode === 'online') { G.out = true; renderArRace(); toast('Out of hearts. Watch the others finish', '#3A2490'); return; }
+  arOverlay(`<b class="big" style="color:#ff8ab4">Out of hearts</b><span>Arrows bumped 3 times. Look at where each one points before you tap.</span>
+    <button class="btn gold w100" id="arNext">Try again</button><button class="btn ghost w100" id="arHome">Back</button>`);
+  $('arNext').onclick = () => { sfx('click'); startArrows(G.level); };
+  $('arHome').onclick = () => { G = null; show('gamehome'); };
+}
+// Online race
+function renderArRace() {
+  if (!G || !G.s || G.s.game !== 'arrows' || current !== 'arrows') return;
+  const s = G.s;
+  $('arRacers').innerHTML = s.players.map(p => {
+    const lp = G.lobby.find(x => x.pid === p.id), speaking = G.speaking && G.speaking.has(p.id), f = Math.round(p.filled / s.total * 100);
+    return `<div class="racer ${p.out || p.left ? 'out' : ''}" data-pid="${p.id}">${avatar(p.look, p.tint != null ? p.tint : 0, speaking ? 'speak' : '', p.id)}
+      <div class="col grow minw0"><span class="nm">${esc(p.id === pid ? 'You' : p.name)}${lp && lp.mic ? ' 🎙️' : ''}</span><span class="rbar"><i style="width:${f}%"></i></span><span class="st">${p.left ? 'Left' : p.out ? 'Out of hearts' : `${f}% · ${'❤️'.repeat(Math.max(0, AR_HEARTS - p.mistakes))}`}</span></div></div>`;
+  }).join('');
+}
+function onArState(m) {
+  G.s = m.s; G.game = 'arrows';
+  if (m.s.over && m.t === 'sync') { onArEnd(m); return; }
+  if (!G.L || G.L.seed !== m.s.seed || G.L.level !== m.s.level) {
+    G.L = arrowLevel(m.s.level, m.s.seed); G.gone = new Set(); G.order = []; G.hearts = AR_HEARTS; G.hints = 3; G.level = m.s.level; G.over = false; G.out = false; G.hint = null;
+    enterArrows();
+  } else if (current !== 'arrows') enterArrows(); else renderArrows();
+  if (m.t === 'start') { sfx('turn'); toast('Go! Same picture for everyone', '#3A2490'); }
+}
+function onArEnd(m) {
+  G.s = m.s; G.over = true;
+  const s = m.s, W = s.players.find(p => p.id === s.winner) || s.players[0], iWon = W.id === pid, me = s.players.find(p => p.id === pid);
+  if (me) addHistory({ game: 'arrows', mode: 'online', result: iWon ? 'won' : 'lost', of: s.players.length, rank: iWon ? 1 : 2, score: `Race · ${Math.round(me.filled / s.total * 100)}% cleared`,
+    opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint || 0 })) });
+  $('winTitle').textContent = iWon ? 'You won the race!' : `${W.name} won!`;
+  $('winSub').textContent = s.reason === 'solved' ? `${iWon ? 'You' : W.name} cleared every arrow first` : s.reason === 'others-out' ? 'Everyone else ran out of hearts or left' : 'Most arrows cleared';
+  danceStage({ look: W.look, tint: W.tint || 0, name: W.name }, s.players.filter(p => p.id !== W.id).map(p => ({ look: p.look, tint: p.tint || 0 })));
+  $('winRest').innerHTML = `<div class="rankchips">${s.players.filter(p => p.id !== W.id).map((p, k) => `<span class="rankchip"><b>${k + 2}</b>${esc(p.name)} · ${Math.round(p.filled / s.total * 100)}%</span>`).join('')}</div>`;
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
+  $('winAgain').style.display = G.host ? 'flex' : 'none';
+  buzz([60, 40, 60, 40, 120]);
+  setTimeout(() => { show('win'); startDance(); }, 600);
+}
+
 // ---------- Win dance: everyone does bhangra to the dhol ----------
 // Sheets: img/dance<character>-<team colour>.webp, 8 frames. The music has a beat every 0.6 s
 // starting at 0.55 s; a knee goes up on each beat and lands half a beat later.
@@ -2062,9 +2222,9 @@ function endOnline() {
 function syncMicButtons() {
   if (!G || !G.voice) return;
   const on = G.voice.hasMic() && !G.voice.muted;
-  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
+  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
 }
-['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic'].forEach(id => $(id).onclick = async () => {
+['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic'].forEach(id => $(id).onclick = async () => {
   if (!G || !G.voice) return;
   if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
   else G.voice.setMuted(!G.voice.muted);
@@ -2076,7 +2236,7 @@ function syncMicButtons() {
 function renderLobby() {
   if (!G) return;
   const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : 4;
-  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : GAME_NAME[G.game || 'ludo']) + (G.game === 'sudoku' ? '' : ' room');
+  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : G.game === 'arrows' ? 'Arrow race' : GAME_NAME[G.game || 'ludo']) + (G.game === 'sudoku' || G.game === 'arrows' ? '' : ' room');
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
   const rows = L.map((p, i) => {
@@ -2140,6 +2300,7 @@ async function onNet(m) {
       if (m.s && m.s.game === 'carrom') { onCarromState(m); break; }
       if (m.s && m.s.game === 'patta') { onPattaState(m); break; }
       if (m.s && m.s.game === 'sudoku') { onRaceState(m); break; }
+      if (m.s && m.s.game === 'arrows') { onArState(m); break; }
       G.s = m.s; G.turnEnds = m.turnEnds || null; G.busy = false;
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
@@ -2179,6 +2340,8 @@ async function onNet(m) {
     case 'pev': await onPattaEv(m); break;
     case 'sprog': onRaceProg(m); break;
     case 'send': onRaceEnd(m); break;
+    case 'aprog': G.s = m.s; renderArRace(); break;
+    case 'aend': onArEnd(m); break;
     case 'rend': onCarromEnd(m); break;
     case 'passed':
       if (G.s && G.s.game === 'carrom') { onCarromPassed(m); break; }
@@ -2260,7 +2423,7 @@ function colorOf(id) {
 }
 function setBadges() {
   const n = (G && G.unread) || 0;
-  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge', 'sdBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
+  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge', 'sdBadge', 'arBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
 }
 function onChat(m) {
   G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();

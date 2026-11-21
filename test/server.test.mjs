@@ -124,4 +124,19 @@ room.clearTurn();
   r.onMsg(ws[1], JSON.stringify({ t: 'sdone', grid: pz.solution }));
   check(r.s.over && r.s.winner === 'z1', 'solver wins');
 }
+// Arrow race: replayed taps decide the winner
+{
+  const { makeLevel, isFree } = await import('../app/src/main/assets/www/js/arrows.js');
+  const r = new Room({}, {}); r.claimed = true; r.code = 'ARROW';
+  const ws = ['a', 'b'].map(mk);
+  ws.forEach((w, i) => r.onMsg(w, JSON.stringify({ t: 'hello', pid: 'y' + i, name: 'Y' + i, game: 'arrows' })));
+  r.onMsg(ws[0], JSON.stringify({ t: 'start' }));
+  check(r.s && r.s.game === 'arrows', 'arrows started');
+  const L = makeLevel(r.s.level, r.s.seed), gone = new Set(), order = [];
+  for (;;) { const f = L.arrows.find(x => !gone.has(x.id) && isFree(L, gone, x.id)); if (!f) break; gone.add(f.id); order.push(f.id); }
+  r.onMsg(ws[0], JSON.stringify({ t: 'adone', order: order.slice(0, 3) }));
+  check(!r.s.over, 'partial run refused');
+  r.onMsg(ws[0], JSON.stringify({ t: 'adone', order }));
+  check(r.s.over && r.s.winner === 'y0', 'arrow race won');
+}
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);
