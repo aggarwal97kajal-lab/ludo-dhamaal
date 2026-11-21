@@ -6,6 +6,7 @@ import { newCarrom, applyShot, carromPass, carromLeft, cleanShot } from '../../a
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaLeft, viewFor } from '../../app/src/main/assets/www/js/patta.js';
 const PATTA_MS = 20000;
 import { makeLevel as arrowLevel, checkRun as arrowRun, HEARTS as ARROW_HEARTS } from '../../app/src/main/assets/www/js/arrows.js';
+import { ROUNDS as DRAW_ROUNDS, CHOOSE_MS, DRAW_MS, REVEAL_MS, MAX_PLAYERS as DRAW_MAX, judge, hintOf, guessPoints, DRAWER_POINTS, pickWords } from '../../app/src/main/assets/www/js/draw.js';
 import { makePuzzle, checkSolved, LEVELS as SUDOKU_LEVELS, MAX_MISTAKES } from '../../app/src/main/assets/www/js/sudoku.js';
 const CARROM_MS = 20000;
 
@@ -21,7 +22,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows'], v: 8 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw'], v: 8 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/.well-known/assetlinks.json') return json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: PKG, sha256_cert_fingerprints: CERTS } }]);
     const link = url.pathname.match(/^\/r\/([A-Za-z0-9]{5})\/?$/);
@@ -94,8 +95,9 @@ export class Room {
       if (!r) return;
       Object.assign(this, { players: r.players || [], host: r.host, s: r.s, claimed: r.claimed, code: r.code, moves: r.moves || [], chat: r.chat || [], game: r.game || 'ludo', mode: r.mode || 'classic', chessRound: r.chessRound || 0 });
       this.players.forEach(p => { p.connected = false; });
-      if (this.s && !this.s.over && this.s.game !== 'sudoku' && this.s.game !== 'arrows') { if (this.s.game === 'chess') this.armChess(); else this.armTurn(); }
+      if (this.s && !this.s.over && this.s.game !== 'sudoku' && this.s.game !== 'arrows' && this.s.game !== 'draw') { if (this.s.game === 'chess') this.armChess(); else this.armTurn(); }
       this.carromRound = r.carromRound || 0;
+      if (this.s && this.s.game === 'draw' && !this.s.over) { this.dops = []; setTimeout(() => { if (this.s && this.s.game === 'draw' && !this.s.over) { this.s.phase = 'choose'; this.dReveal('restart'); } }, 2000); }
       this.armEmpty();
     } catch (e) { /* start fresh */ }
   }
@@ -154,6 +156,9 @@ export class Room {
       case 'rshot': this.doCarromShot(ws, me, m); break;
       case 'sprog': case 'sdone': this.doSudoku(me, m); break;
       case 'aprog': case 'adone': this.doArrows(me, m); break;
+      case 'dpick': this.dPick(me, Number(m.i)); break;
+      case 'dop': this.dOp(me, m.op); break;
+      case 'dguess': this.dGuess(me, m.text); break;
       case 'pplay': case 'pdraw': case 'ppass': case 'pek': case 'pcatch': this.doPatta(ws, me, m); break;
       case 'chat': {
         const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
@@ -166,7 +171,7 @@ export class Room {
         this.all(msg); break;
       }
       case 'rtc': { const to = this.wsOf(m.to); if (to && m.data && JSON.stringify(m.data).length < 20000) this.send(to, { t: 'rtc', from: me, data: m.data }); break; }
-      case 'again': if (me === this.host && this.s && this.s.over) { this.s = null; this.clearTurn(); this.players = this.players.filter(x => x.connected); this.all({ t: 'lobbyAgain' }); this.lobby(); } break;
+      case 'again': if (me === this.host && this.s && this.s.over) { this.s = null; this.clearTurn(); this.dClear(); this.players = this.players.filter(x => x.connected); this.all({ t: 'lobbyAgain' }); this.lobby(); } break;
       case 'photo': {
         const img = typeof m.img === 'string' ? m.img : '';
         if (img && !(img.startsWith('data:image/jpeg;base64,') || img.startsWith('data:image/webp;base64,')) ) break;
@@ -188,8 +193,8 @@ export class Room {
       if (this.s) return this.send(ws, { t: 'err', msg: 'This game has already started.', fatal: true });
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
       // The person who creates the room picks the game. Everyone who joins plays that game.
-      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'arrows' ? 'race' : this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
-      const max = this.game === 'chess' || this.game === 'carrom' ? 2 : 4;
+      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'arrows' ? 'race' : this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
+      const max = this.game === 'chess' || this.game === 'carrom' ? 2 : this.game === 'draw' ? DRAW_MAX : 4;
       if (this.players.length >= max) return this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
       p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false };
       this.players.push(p);
@@ -207,6 +212,7 @@ export class Room {
     if (this.s && this.s.game === 'chess') this.send(ws, { t: 'sync', s: this.s, left: this.chessLeftMs() });
     else if (this.s && this.s.game === 'carrom') this.send(ws, { t: 'sync', s: this.s, turnEnds: this.turnEnds });
     else if (this.s && (this.s.game === 'sudoku' || this.s.game === 'arrows')) this.send(ws, { t: 'sync', s: this.s });
+    else if (this.s && this.s.game === 'draw') this.send(ws, { t: 'sync', s: this.dView(pid), ops: this.dops || [] });
     else if (this.s && this.s.game === 'patta') this.send(ws, { t: 'sync', s: viewFor(this.s, this.s.players.findIndex(x => x.id === pid)), turnEnds: this.turnEnds });
     else if (this.s) this.send(ws, { t: 'sync', s: this.s, moves: this.s.rolled ? this.moves : [], turnEnds: this.turnEnds });
   }
@@ -221,7 +227,15 @@ export class Room {
       const gp = this.s.players.find(x => x.id === pid);
       const ci = this.s.game === 'carrom' ? this.s.players.findIndex(x => x.id === pid) : -1;
       const pi = this.s.game === 'patta' ? this.s.players.findIndex(x => x.id === pid) : -1;
-      if ((this.s.game === 'sudoku' || this.s.game === 'arrows') && !this.s.over) {
+      if (this.s.game === 'draw' && !this.s.over) {
+        const k = this.s.players.findIndex(x => x.id === pid);
+        if (k >= 0) {
+          this.s.players[k].left = true;
+          if (this.dLive().length < 2) this.dEnd('left');
+          else if (k === this.s.drawer && this.s.phase !== 'reveal') this.dReveal('left');
+          else this.dAll({ t: 'dstate' });
+        }
+      } else if ((this.s.game === 'sudoku' || this.s.game === 'arrows') && !this.s.over) {
         const q = this.s.players.find(x => x.id === pid), ar = this.s.game === 'arrows';
         if (q) { q.left = true; this.sudokuCheckEnd(); this.s.seq++; this.all({ t: this.s.over ? (ar ? 'aend' : 'send') : (ar ? 'aprog' : 'sprog'), s: this.s }); }
       } else if (pi >= 0 && !this.s.over) {
@@ -301,6 +315,15 @@ export class Room {
       this.lobby();
       return;
     }
+    if (this.game === 'draw') {
+      this.s = { game: 'draw', players: ready.map(q => ({ id: q.pid, name: q.name, look: q.look, tint: q.tint, score: 0, guessed: false, gain: 0, left: false })),
+        rounds: DRAW_ROUNDS, turn: 0, round: 1, drawer: 0, phase: 'choose', word: null, choices: null, hint: [], endsAt: null, used: [], seq: 0, over: false, winner: null, reason: '' };
+      this.dops = [];
+      this.clearTurn();
+      this.dTurn('start');
+      this.lobby();
+      return;
+    }
     if (this.game === 'arrows') {
       // A race on the same level: a mid-size picture.
       const b = new Uint32Array(1); crypto.getRandomValues(b);
@@ -341,6 +364,103 @@ export class Room {
     this.all({ t: 'start', s: this.s, turnEnds: this.turnEnds });
     this.lobby();
     this.checkAway();
+  }
+
+  // ---------- Draw & Guess ----------
+  // The word is secret: only the drawer (and people who guessed it) see it until the reveal.
+  dView(pid) {
+    const s = this.s, i = s.players.findIndex(p => p.id === pid), me = s.players[i];
+    const see = s.phase === 'reveal' || s.phase === 'over' || i === s.drawer || (me && me.guessed);
+    return Object.assign({}, s, { word: see ? s.word : null, choices: i === s.drawer && s.phase === 'choose' ? s.choices : null, used: undefined, left: s.endsAt ? Math.max(0, s.endsAt - Date.now()) : null });
+  }
+  dAll(m) { for (const [ws, pid] of this.sockets) this.send(ws, Object.assign({}, m, { s: this.dView(pid) })); this.save(); }
+  dClear() { (this.dTimers || []).forEach(t => clearTimeout(t)); this.dTimers = []; }
+  dLater(ms, f) { const s = this.s; this.dTimers = this.dTimers || []; this.dTimers.push(setTimeout(() => { if (this.s === s && !s.over) f(); }, ms)); }
+  dLive() { return this.s.players.filter(p => !p.left); }
+  // Next person draws. Everyone draws once in each round.
+  dTurn(why) {
+    const s = this.s; this.dClear();
+    if (this.dLive().length < 2) return this.dEnd('left');
+    const n = s.players.length;
+    while (s.turn < s.rounds * n && s.players[s.turn % n].left) s.turn++;
+    if (s.turn >= s.rounds * n) return this.dEnd('done');
+    s.drawer = s.turn % n; s.round = Math.floor(s.turn / n) + 1;
+    s.phase = 'choose'; s.word = null; s.hint = []; s.shown = [];
+    s.choices = pickWords(Math.random, 3, s.used);
+    s.players.forEach(p => { p.guessed = false; p.gain = 0; });
+    s.endsAt = Date.now() + CHOOSE_MS; s.seq++;
+    this.dops = [];
+    this.dLater(CHOOSE_MS, () => this.dPick(s.players[s.drawer].id, 0));
+    this.dAll({ t: 'dturn', why });
+  }
+  dPick(pid, k) {
+    const s = this.s; if (!s || s.game !== 'draw' || s.phase !== 'choose' || s.players[s.drawer].id !== pid) return;
+    this.dClear();
+    s.word = s.choices[k >= 0 && k < 3 ? k : 0]; s.used.push(s.word); s.choices = null;
+    s.phase = 'draw'; s.shown = []; s.hint = hintOf(s.word, []); s.endsAt = Date.now() + DRAW_MS; s.seq++;
+    // Show a letter at half time and another at three quarters (longer words only).
+    const letters = [...s.word].map((c, i) => (c === ' ' ? -1 : i)).filter(i => i >= 0);
+    const reveal = () => { const left = letters.filter(i => !s.shown.includes(i)); if (left.length <= 2) return; s.shown.push(left[Math.floor(Math.random() * left.length)]); s.hint = hintOf(s.word, s.shown); s.seq++; this.dAll({ t: 'dhint' }); };
+    if (letters.length >= 4) { this.dLater(DRAW_MS * 0.5, reveal); if (letters.length >= 6) this.dLater(DRAW_MS * 0.75, reveal); }
+    this.dLater(DRAW_MS, () => this.dReveal('time'));
+    this.dAll({ t: 'dturn', why: 'picked' });
+  }
+  dReveal(why) {
+    const s = this.s; if (!s || s.phase === 'reveal' || s.over) return;
+    this.dClear();
+    s.phase = 'reveal'; s.endsAt = Date.now() + REVEAL_MS; s.seq++;
+    if (!s.word && s.choices) s.word = s.choices[0];
+    this.dAll({ t: 'dturn', why });
+    this.dLater(REVEAL_MS, () => { s.turn++; this.dTurn('next'); });
+  }
+  dEnd(why) {
+    const s = this.s; this.dClear();
+    s.over = true; s.phase = 'over'; s.reason = why; s.seq++;
+    const live = s.players.filter(p => !p.left), best = (live.length ? live : s.players).slice().sort((a, b) => b.score - a.score)[0];
+    s.winner = best ? best.id : null;
+    this.dAll({ t: 'dend' });
+  }
+  dOp(pid, op) {
+    const s = this.s; if (!s || s.game !== 'draw' || s.phase !== 'draw' || s.players[s.drawer].id !== pid || !op || typeof op !== 'object') return;
+    let clean = null;
+    const num = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
+    const col = c => (/^#[0-9a-fA-F]{6}$/.test(String(c)) ? String(c) : '#1d1d1d');
+    if (op.t === 's' && Array.isArray(op.pts)) {
+      const pts = op.pts.slice(0, 300).map(p => [num(p[0], 0, 1000), num(p[1], 0, 1000)]);
+      clean = { t: 's', id: num(op.id, 0, 1e9), c: col(op.c), w: num(op.w, 1, 80), pts };
+      const old = this.dops.find(o => o.t === 's' && o.id === clean.id);
+      if (old) old.pts.push(...pts); else if (this.dops.length < 3000) this.dops.push({ t: 's', id: clean.id, c: clean.c, w: clean.w, pts: pts.slice() });
+    } else if (op.t === 'fill') { clean = { t: 'fill', x: num(op.x, 0, 1000), y: num(op.y, 0, 1000), c: col(op.c) }; if (this.dops.length < 3000) this.dops.push(clean); }
+    else if (op.t === 'clear') { clean = { t: 'clear' }; this.dops = []; }
+    else if (op.t === 'undo') { clean = { t: 'undo' }; this.dops.pop(); }
+    if (!clean) return;
+    const txt = JSON.stringify({ t: 'dop', op: clean });
+    for (const [ws, who] of this.sockets) if (who !== pid) { try { ws.send(txt); } catch (e) { /* closed */ } }
+  }
+  dGuess(pid, text) {
+    const s = this.s; if (!s || s.game !== 'draw' || s.over) return;
+    const i = s.players.findIndex(p => p.id === pid), p = s.players[i]; if (!p) return;
+    text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 60); if (!text) return;
+    const now = Date.now(); if (p.lastGuess && now - p.lastGuess < 350) return; p.lastGuess = now;
+    const toAll = m => { const t = JSON.stringify(m); for (const ws of this.sockets.keys()) { try { ws.send(t); } catch (e) { /* closed */ } } };
+    // The drawer and people who already guessed talk only among themselves (so they can't give it away).
+    if (s.phase === 'draw' && (i === s.drawer || p.guessed)) {
+      const inner = new Set(s.players.filter((q, k) => k === s.drawer || q.guessed).map(q => q.id));
+      const t = JSON.stringify({ t: 'dmsg', kind: 'inner', from: pid, name: p.name, text });
+      for (const [ws, who] of this.sockets) if (inner.has(who)) { try { ws.send(t); } catch (e) { /* closed */ } }
+      return;
+    }
+    if (s.phase !== 'draw') return toAll({ t: 'dmsg', kind: 'chat', from: pid, name: p.name, text });
+    const j = judge(text, s.word);
+    if (j === 'right') {
+      p.guessed = true; p.gain = guessPoints(s.endsAt - now); p.score += p.gain;
+      const d = s.players[s.drawer]; d.score += DRAWER_POINTS; d.gain += DRAWER_POINTS; s.seq++;
+      toAll({ t: 'dmsg', kind: 'right', from: pid, name: p.name, gain: p.gain });
+      if (s.players.every((q, k) => k === s.drawer || q.left || q.guessed)) this.dReveal('all');
+      else this.dAll({ t: 'dstate' });
+    } else if (j === 'close') {
+      this.send(this.wsOf(pid), { t: 'dmsg', kind: 'close', from: pid, name: p.name, text });
+    } else toAll({ t: 'dmsg', kind: 'guess', from: pid, name: p.name, text });
   }
 
   // ---------- Sudoku race ----------

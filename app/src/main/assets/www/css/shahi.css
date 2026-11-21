@@ -541,3 +541,70 @@ h2 { font-size: 25px; }
 .lvgrid button.on { background: var(--goldgrad); color: #3a1d00; }
 .arch.arrows .inner { background: radial-gradient(90% 70% at 50% 70%, #5ad8ff, #1479d6 55%, #082a6b); }
 .gbadge.arrows { background: radial-gradient(circle at 50% 30%, #5ad8ff, #1460d6); color: #fff; }
+/* ---------- Draw & Guess ---------- */
+.dwrap { height: 100%; display: flex; flex-direction: column; gap: 8px; padding: 12px 12px calc(10px + env(safe-area-inset-bottom)); max-width: 480px; margin: 0 auto; }
+.dtitle { font-size: 21px; }
+.dwrap .micbtn { width: 46px; height: 46px; }
+.dwrap .micbtn svg { width: 22px; height: 22px; }
+.timerbig { width: 50px; height: 50px; position: relative; flex-shrink: 0; }
+.timerbig svg { position: absolute; inset: 0; width: 100%; height: 100%; stroke: none; }
+.timerbig circle { stroke-width: 5; }
+.timerbig b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 17px; color: #ffe17a; }
+.dword { min-height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.dword .lbl { font-size: 12px; color: #d7c8ff; font-weight: 700; }
+.dword .w { font-size: 25px; font-weight: 800; letter-spacing: 2px; line-height: 1.1; }
+.blanks { display: flex; gap: 6px; font-size: 22px; font-weight: 800; color: #ffe17a; flex-wrap: wrap; justify-content: center; }
+.blanks span { width: 20px; text-align: center; border-bottom: 3px solid #ffd34d; line-height: 1.1; min-height: 26px; }
+.blanks .sp { width: 10px; }
+.dcanvas { position: relative; width: 100%; max-width: min(100%, 46vh); align-self: center; aspect-ratio: 1; border-radius: 16px; overflow: hidden; background: #fffdf6; flex-shrink: 0;
+  box-shadow: 0 0 0 3px #d99100, 0 0 0 5px #fff6c4, 0 12px 26px rgba(0, 0, 0, .5); touch-action: none; }
+.dcanvas canvas { display: block; touch-action: none; }
+.dcanvas.mine { box-shadow: 0 0 0 3px #ffd34d, 0 0 0 5px #fff6c4, 0 0 24px rgba(255, 211, 77, .55), 0 12px 26px rgba(0, 0, 0, .5); }
+.dwait { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; font-size: 17px; font-weight: 800; color: #5a3a8a; background: rgba(255, 253, 246, .85); }
+.dwait.show { display: flex; }
+.dtools { display: none; flex-direction: column; gap: 8px; }
+.dtools.show { display: flex; }
+.palette { display: flex; justify-content: space-between; align-items: center; }
+.sw { width: 28px; height: 28px; border-radius: 50%; border: none; padding: 0; box-shadow: 0 0 0 2px rgba(255, 255, 255, .35); }
+.sw.on { box-shadow: 0 0 0 3px #fff6c4, 0 0 0 5px #d99100, 0 0 12px #ffd34d; }
+.brushes { display: flex; gap: 7px; align-items: center; }
+.bsz { flex: 1; height: 42px; border: none; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #fff4d6; background: radial-gradient(circle at 35% 30%, #5d2c95, #2a0f55 70%); box-shadow: inset 0 0 0 1.5px #ffd34d; }
+.bsz i { border-radius: 50%; display: block; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .5); }
+.bsz.on { box-shadow: inset 0 0 0 2.5px #ffe17a, 0 0 12px rgba(255, 211, 77, .6); }
+.dplayers { display: flex; gap: 4px; justify-content: space-around; overflow-x: auto; flex-shrink: 0; scrollbar-width: none; }
+.pchip { display: flex; flex-direction: column; align-items: center; width: 62px; position: relative; flex-shrink: 0; }
+.pchip .av { width: 44px; height: 44px; padding: 3px; }
+.pchip b { font-size: 11.5px; margin-top: 2px; max-width: 62px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pchip span { font-size: 11px; color: #ffe17a; font-weight: 800; line-height: 1; }
+.pchip em { color: #5dffa8; font-style: normal; }
+.pchip .tick { position: absolute; top: -3px; right: 2px; width: 19px; height: 19px; border-radius: 50%; background: #00c853; border: 2px solid #fff6c4; color: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; z-index: 3; }
+.pchip .pen { position: absolute; top: -5px; left: 0; font-size: 17px; z-index: 3; color: inherit; }
+.pchip.away { opacity: .4; }
+.dchat { flex: 1; min-height: 60px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 2px; }
+.gm { font-size: 13.5px; padding: 2px 11px; border-radius: 11px; background: rgba(42, 16, 88, .85); align-self: flex-start; max-width: 100%; word-wrap: break-word; }
+.gm b { color: #ffe17a; margin-right: 5px; }
+.gm.ok { background: linear-gradient(90deg, rgba(0, 168, 83, .92), rgba(0, 120, 60, .85)); color: #fff; box-shadow: 0 0 0 1.5px #8affc1; }
+.gm.ok b { color: #fff; }
+.gm.close { background: rgba(255, 170, 0, .2); box-shadow: 0 0 0 1.5px rgba(255, 211, 77, .55); }
+.gm.close em { color: #ffe17a; font-weight: 800; font-style: normal; }
+.gm.inner { background: rgba(143, 59, 214, .35); box-shadow: 0 0 0 1px rgba(199, 139, 255, .6); }
+.guessbar { display: flex; gap: 10px; flex-shrink: 0; }
+.guessbar .input { height: 50px; font-size: 16px; }
+.guessbar .sendbtn { width: 50px; height: 50px; }
+.dpop { position: absolute; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(10, 4, 30, .6); }
+.dpop.show { display: flex; animation: fadein .25s ease; }
+.dpop .panel { width: 100%; max-width: 340px; padding: 20px 18px; text-align: center; }
+.dpop .big { font-size: 28px; }
+.dpop span { color: #e8dcff; }
+.dpop .btn { height: 54px; text-transform: capitalize; }
+.gains { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center; }
+.gains b { color: #5dffa8; }
+.drawintro { display: flex; flex-direction: column; gap: 4px; }
+.drawintro b { color: #ffe17a; font-size: 16px; }
+.drawintro span { font-size: 13.5px; color: #e8dcff; line-height: 1.4; }
+.arch.draw .inner { background: radial-gradient(90% 70% at 50% 70%, #ff8fd1, #c2188a 55%, #4a0638); }
+.minidraw { position: relative; width: 86px; height: 78px; margin-bottom: 10px; }
+.minidraw .pg { position: absolute; inset: 0; border-radius: 10px; background: #fffdf6; transform: rotate(-6deg); box-shadow: 0 0 0 3px #d99100, 0 8px 0 rgba(0, 0, 0, .3); }
+.minidraw svg { width: 100%; height: 100%; stroke: none; }
+.minidraw i { position: absolute; right: -10px; bottom: -6px; font-size: 32px; font-style: normal; transform: rotate(10deg); }
+.gbadge.draw { background: radial-gradient(circle at 50% 30%, #ff8fd1, #a3126f); }

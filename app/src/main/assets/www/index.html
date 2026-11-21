@@ -273,6 +273,23 @@
   <div class="arover" id="arOver"><div class="panel col center gap10" id="arOverBox"></div></div>
 </section>
 
+<section id="draw" class="screen">
+  <div class="dwrap">
+    <div class="row gap10"><button class="iconbtn" id="dBack" aria-label="Leave game"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 class="grow dtitle" id="dTitle">Draw &amp; Guess</h2><button class="micbtn" id="dMic" aria-label="Mic"></button>
+      <div class="timerbig" aria-label="Time left"><svg viewBox="0 0 54 54"><circle cx="27" cy="27" r="23" fill="#1c0c40" stroke="#3a1d00" stroke-width="5"/><circle id="dRing" cx="27" cy="27" r="23" fill="none" stroke="url(#g)" stroke-width="5" stroke-dasharray="144.5" stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 27 27)"/></svg><b id="dSec"></b></div></div>
+    <div class="dword" id="dWord"></div>
+    <div class="dcanvas" id="dBox"><canvas id="dCanvas"></canvas><div class="dwait" id="dWait"></div></div>
+    <div class="dtools" id="dTools">
+      <div class="palette" id="dPal"></div>
+      <div class="brushes" id="dBrush"></div>
+    </div>
+    <div class="dplayers" id="dPlayers"></div>
+    <div class="dchat" id="dChat"></div>
+    <form class="guessbar" id="dForm"><input class="input" id="dInput" maxlength="60" placeholder="Type your guess" autocomplete="off" autocapitalize="off"><button class="sendbtn" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button></form>
+  </div>
+  <div class="dpop" id="dPop"><div class="panel col center gap10" id="dPopBox"></div></div>
+</section>
+
 <section id="win" class="screen">
   <div class="confetti" id="winConf"></div>
   <div class="pad col center gap14 full">

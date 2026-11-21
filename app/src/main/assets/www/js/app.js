@@ -11,6 +11,7 @@ import { newCarrom, applyShot, carromBot, carromPass, strikerSpot, forwardOk, NE
 import { newSnakes, snakeRoll, snakePass, GOAL } from './snakes.js';
 import { Chess } from './chesslib.js';
 import { makeLevel as arrowLevel, blockerOf, isFree as arrowFree, DIR as ADIR, HEARTS as AR_HEARTS } from './arrows.js';
+import { judge as drawJudge, ROUNDS as D_ROUNDS, DRAW_MS, CHOOSE_MS, REVEAL_MS } from './draw.js';
 import { makePuzzle, dailySeed, peers as sdPeers, LEVELS as SD_LEVELS, LEVEL_NAME as SD_NAME, MAX_MISTAKES as SD_MAX } from './sudoku.js';
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaBot, playable as pattaPlayable, canPlay as pattaCanPlay, top as pattaTop, label as pattaLabel, ranking as pattaRanking, COLORS as PCOLORS } from './patta.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
@@ -259,7 +260,7 @@ const MODE_TEXT = { online: 'online', bot: 'vs computer', local: 'pass & play' }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)]);
 function renderHistory() {
   $('hStats').innerHTML = statsHtml(stats(), false);
-  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'Rang Patta'], ['sudoku', 'Sudoku'], ['arrows', 'Arrows']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
+  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'Rang Patta'], ['sudoku', 'Sudoku'], ['arrows', 'Arrows'], ['draw', 'Draw']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
   const L = history.filter(h => hFilter === 'all' || h.game === hFilter);
   if (!L.length) { $('hList').innerHTML = `<div class="panel hempty"><b>No games yet</b>Play a game and it will show up here.</div>`; return; }
   const groups = [];
@@ -279,9 +280,9 @@ $('hFilters').addEventListener('click', e => { const b = e.target.closest('[data
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
-const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta', sudoku: 'Sudoku', arrows: 'Arrow Escape' };
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta', sudoku: 'Sudoku', arrows: 'Arrow Escape', draw: 'Draw & Guess' };
 // Screens where a game is being played (music off, back button asks to leave, chat bubbles).
-const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku', 'arrows'];
+const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku', 'arrows', 'draw'];
 const ARCH = '<svg class="frame" viewBox="0 0 176 228" preserveAspectRatio="none"><use href="#archOuter" fill="none" stroke="url(#g)" stroke-width="7"/><use href="#archInner" fill="none" stroke="#ffe17a" stroke-width="1.2" opacity=".8"/><circle cx="88" cy="7" r="5" fill="GEM" stroke="#ffe17a" stroke-width="2"/></svg>';
 function renderHome() {
   $('homeAv').innerHTML = myPhoto ? `<div class="in photo" style="background:${UI[profile.color]}"><img src="${myPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
@@ -308,7 +309,8 @@ function renderHome() {
     arch('patta', '#0fb5a5', '2-4', `<div class="minicards">${mc(0, 7, -16)}${mc(3, 'rev', -2)}${mc(2, 'd2', 14)}</div>`, 'Rang Patta', 'Colour &amp; number', '', true) +
     arch('sudoku', '#e5196f', '1-4', `<div class="minisd">${[5, '', 3, '', 8, '', 7, '', 1].map((n, i) => `<i class="${i === 4 ? 'on' : ''}">${n}</i>`).join('')}</div>`, 'Sudoku', 'Daily puzzle', '', true) +
     arch('arrows', '#0fb5a5', '1-4', '<svg viewBox="0 0 80 80" style="width:78px;height:78px;margin-bottom:10px;stroke:none"><g stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M14 22 H50 M44 14 L54 22 L44 30" stroke="#fff"/><path d="M30 40 V70 M22 62 L30 72 L38 62" stroke="#ffd34d"/><path d="M66 70 V36 M58 44 L66 34 L74 44" stroke="#ff5f93"/><path d="M46 52 H14 M22 44 L12 52 L22 60" stroke="#7af0ff"/></g></svg>', 'Arrow Escape', `Level ${settings.arLevel || 1}`, 'long', true) +
-    arch('soon', '#ffd34d', '', '<div style="font-size:40px;margin-bottom:22px">✨</div>', 'Coming soon', 'Draw &amp; Guess', 'long', false, true);
+    arch('draw', '#ffd34d', '2-6', '<div class="minidraw"><span class="pg"><svg viewBox="0 0 100 90"><path d="M30 34 C42 20 66 24 70 44 C74 64 56 76 42 72 C26 68 22 52 30 34Z" fill="none" stroke="#e6a800" stroke-width="5"/><path d="M48 26 L52 14" stroke="#6b3a00" stroke-width="5" stroke-linecap="round"/><path d="M52 16 C60 8 72 10 74 16 C66 20 58 20 52 16Z" fill="#059669" stroke="none"/></svg></span><i>✏️</i></div>', 'Draw &amp; Guess', 'Draw, friends guess', 'long', true) +
+    arch('soon', '#ffd34d', '', '<div style="font-size:40px;margin-bottom:22px">✨</div>', 'More coming', 'Tell us your pick', 'long', false, true);
   music(true);
 }
 $('homeAv').onclick = () => { sfx('click'); openProfile(); };
@@ -320,7 +322,7 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : GAME === 'draw' ? '<div class="l1">Draw &amp;</div><div class="l2">Guess</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = GAME === 'carrom' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
@@ -343,6 +345,12 @@ function renderModes() {
     <div class="ppl">${typeof m[4] === 'string' ? m[4] : m[4].map(i => body(i, i, GAME === 'carrom' ? 58 : 82)).join('')}</div></button>`).join('');
   if (GAME === 'sudoku') { $('modes').innerHTML = sudokuModesHtml(); music(true); return; }
   if (GAME === 'arrows') { $('modes').innerHTML = arrowModesHtml(); music(true); return; }
+  if (GAME === 'draw') {
+    $('modes').innerHTML = `<div class="drawintro panel"><b>How it works</b><span>One person draws a secret word. Everyone else types guesses. The quicker you guess, the more points you get. Everyone draws once in each of 3 rounds. 2 to 6 players, with voice chat.</span></div>
+      <button class="sdmode ruby" data-mode="online"><span class="col grow"><b>Create a room</b><small>Invite friends on WhatsApp</small></span></button>
+      <button class="sdmode blue" data-mode="join"><span class="col grow"><b>Join a room</b><small>Enter your friend’s room code</small></span></button>`;
+    music(true); return;
+  }
   $('modes').innerHTML = GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : list;
   music(true);
 }
@@ -496,6 +504,7 @@ function renderCards() {
   if (G.s && G.s.game === 'patta') return renderPatta();
   if (G.s && G.s.game === 'sudoku') return renderRace();
   if (G.s && G.s.game === 'arrows') return renderArRace();
+  if (G.s && G.s.game === 'draw') return renderDraw();
   if (G.s && G.s.game === 'chess') return renderChessCards();
   if (G.s && G.s.game === 'carrom') return renderCarromCards();
   const s = G.s;
@@ -571,6 +580,7 @@ setInterval(() => {
   if (G && current === 'chess' && G.s) { chessTick(); ringSync('chess', 'cFill'); return; }
   if (G && current === 'carrom' && G.s) { carromTick(); ringSync('carrom', 'rFill'); return; }
   if (G && current === 'patta' && G.s) { pattaTick(); ringSync('patta', 'pFill'); return; }
+  if (G && current === 'draw' && G.s) { drawTick(); return; }
   if (!G || current !== 'game' || !G.s) { $('tfill').style.width = '0'; return; }
   if (G.busy && board && !board.tweens.length && !diceSpin) { G.stuck = (G.stuck || 0) + 250; if (G.stuck > 6000) { G.busy = false; G.stuck = 0; } } else G.stuck = 0;
   refreshDice();
@@ -2101,6 +2111,203 @@ function onArEnd(m) {
   setTimeout(() => { show('win'); startDance(); }, 600);
 }
 
+// ---------- Draw & Guess (online) ----------
+const D_COLORS = ['#1d1d1d', '#ffffff', '#e0103a', '#ff8a00', '#e6a800', '#059669', '#1460d6', '#8f3bd6', '#6b3a00', '#ff7aa8'];
+const D_SIZES = [5, 12, 24];
+const D_BG = '#fffdf6';
+function drawMe() { return G.s.players.findIndex(p => p.id === pid); }
+const iDraw = () => G && G.s && G.s.phase === 'draw' && G.s.drawer === drawMe();
+function onDrawState(m) {
+  const before = G.s;
+  G.s = m.s; G.game = 'draw';
+  if (m.s.left != null) G.dEnds = Date.now() + m.s.left;
+  if (m.t === 'sync') { G.dops = m.ops || []; if (m.s.over) { onDrawEnd(m); return; } }
+  // New turn: empty canvas.
+  if (m.t === 'dturn' && m.s.phase === 'choose') { G.dops = []; G.dmsgs = (G.dmsgs || []).slice(-4); }
+  if (current !== 'draw') { G.dmsgs = G.dmsgs || []; G.dtool = G.dtool || { c: '#1d1d1d', w: 12, mode: 'pen' }; show('draw'); setBadges(); syncMicButtons(); music(false); sizeDraw(); }
+  renderDraw();
+  if (m.t === 'dturn') {
+    const s = m.s, d = s.players[s.drawer];
+    if (s.phase === 'choose' && s.drawer === drawMe()) { sfx('turn'); buzz([50]); }
+    if (s.phase === 'draw' && before && before.phase === 'choose') { sfx('pop'); }
+    if (s.phase === 'reveal') sfx(m.why === 'all' ? 'finish' : 'turn');
+    void d;
+  }
+}
+function sizeDraw() {
+  const c = $('dCanvas'), box = $('dBox'), w = box.clientWidth || 360, dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = Math.round(w * dpr); c.height = Math.round(w * dpr); c.style.width = w + 'px'; c.style.height = w + 'px';
+  G.dscale = c.width / 1000;
+  redrawAll();
+}
+window.addEventListener('resize', () => { if (G && G.game === 'draw' && current === 'draw') sizeDraw(); });
+function ctx2() { return $('dCanvas').getContext('2d'); }
+function redrawAll() {
+  if (!G || !G.dscale) return;
+  const g = ctx2(), c = $('dCanvas');
+  g.fillStyle = D_BG; g.fillRect(0, 0, c.width, c.height);
+  (G.dops || []).forEach(op => drawOp(op, 0));
+}
+function drawOp(op, from) {
+  const g = ctx2(), k = G.dscale;
+  if (op.t === 's') {
+    const pts = op.pts; if (!pts.length) return;
+    g.strokeStyle = op.c; g.fillStyle = op.c; g.lineWidth = op.w * k; g.lineCap = 'round'; g.lineJoin = 'round';
+    if (from === 0) { g.beginPath(); g.arc(pts[0][0] * k, pts[0][1] * k, op.w * k / 2, 0, 7); g.fill(); }
+    if (pts.length === 1) return;
+    g.beginPath(); const s0 = Math.max(0, from - 1); g.moveTo(pts[s0][0] * k, pts[s0][1] * k);
+    for (let i = s0 + 1; i < pts.length; i++) g.lineTo(pts[i][0] * k, pts[i][1] * k);
+    g.stroke();
+  } else if (op.t === 'fill') floodFill(op.x * k, op.y * k, op.c);
+}
+function floodFill(x, y, color) {
+  const c = $('dCanvas'), g = ctx2(), W = c.width, H = c.height;
+  x = Math.floor(x); y = Math.floor(y); if (x < 0 || y < 0 || x >= W || y >= H) return;
+  const img = g.getImageData(0, 0, W, H), d = img.data;
+  const tr = parseInt(color.slice(1, 3), 16), tg = parseInt(color.slice(3, 5), 16), tb = parseInt(color.slice(5, 7), 16);
+  const i0 = (y * W + x) * 4, sr = d[i0], sg = d[i0 + 1], sb = d[i0 + 2];
+  if (Math.abs(sr - tr) + Math.abs(sg - tg) + Math.abs(sb - tb) < 10) return;
+  const near = i => Math.abs(d[i] - sr) + Math.abs(d[i + 1] - sg) + Math.abs(d[i + 2] - sb) < 90;
+  const stack = [x, y], seen = new Uint8Array(W * H);
+  while (stack.length) {
+    const py = stack.pop(), px = stack.pop(); let xl = px;
+    while (xl >= 0 && !seen[py * W + xl] && near((py * W + xl) * 4)) xl--;
+    xl++;
+    let up = false, dn = false;
+    for (let xx = xl; xx < W && !seen[py * W + xx] && near((py * W + xx) * 4); xx++) {
+      const p = py * W + xx, q = p * 4; seen[p] = 1; d[q] = tr; d[q + 1] = tg; d[q + 2] = tb; d[q + 3] = 255;
+      if (py > 0) { const u = p - W; if (!seen[u] && near(u * 4)) { if (!up) { stack.push(xx, py - 1); up = true; } } else up = false; }
+      if (py < H - 1) { const v = p + W; if (!seen[v] && near(v * 4)) { if (!dn) { stack.push(xx, py + 1); dn = true; } } else dn = false; }
+    }
+  }
+  g.putImageData(img, 0, 0);
+}
+function onDrawOp(op) {
+  if (!G || !G.s || G.s.game !== 'draw') return;
+  G.dops = G.dops || [];
+  if (op.t === 's') { const old = G.dops.find(o => o.t === 's' && o.id === op.id); if (old) { const from = old.pts.length; old.pts.push(...op.pts); drawOp(old, from); } else { const o = { t: 's', id: op.id, c: op.c, w: op.w, pts: op.pts.slice() }; G.dops.push(o); drawOp(o, 0); } }
+  else if (op.t === 'fill') { G.dops.push(op); drawOp(op, 0); }
+  else if (op.t === 'clear') { G.dops = []; redrawAll(); }
+  else if (op.t === 'undo') { G.dops.pop(); redrawAll(); }
+}
+function renderDraw() {
+  if (!G || !G.s || G.s.game !== 'draw' || current !== 'draw') return;
+  const s = G.s, me = drawMe(), drawer = s.players[s.drawer], mine = s.drawer === me;
+  $('dTitle').textContent = `Round ${Math.min(s.round, s.rounds)} of ${s.rounds}`;
+  // Word / blanks
+  if (s.phase === 'draw' && (mine || s.word)) $('dWord').innerHTML = `<span class="lbl">${mine ? 'You are drawing' : 'You guessed it!'}</span><span class="w goldtxt">${esc(s.word.toUpperCase())}</span>`;
+  else if (s.phase === 'draw') $('dWord').innerHTML = `<span class="lbl">Guess the word · ${s.hint.filter(c => c !== ' ').length} letters</span><span class="blanks">${s.hint.map(c => c === ' ' ? '<i class="sp"></i>' : `<span>${c === '_' ? '' : esc(c)}</span>`).join('')}</span>`;
+  else if (s.phase === 'choose') $('dWord').innerHTML = `<span class="lbl">${mine ? 'Pick a word to draw' : `${esc(drawer.name)} is picking a word...`}</span>`;
+  else $('dWord').innerHTML = `<span class="lbl">The word was</span><span class="w goldtxt">${esc((s.word || '').toUpperCase())}</span>`;
+  $('dWait').textContent = s.phase === 'choose' && !mine ? `${drawer.name} is picking a word...` : '';
+  $('dWait').classList.toggle('show', s.phase === 'choose' && !mine);
+  // Tools only for the person drawing
+  $('dTools').classList.toggle('show', mine && s.phase === 'draw');
+  $('dBox').classList.toggle('mine', mine && s.phase === 'draw');
+  const t = G.dtool || { c: '#1d1d1d', w: 12, mode: 'pen' };
+  $('dPal').innerHTML = D_COLORS.map(c => `<button class="sw ${t.c === c && t.mode !== 'erase' ? 'on' : ''}" data-dc="${c}" style="background:${c}" aria-label="Colour"></button>`).join('');
+  $('dBrush').innerHTML = D_SIZES.map(w => `<button class="bsz ${t.w === w && t.mode === 'pen' ? 'on' : ''}" data-dw="${w}" aria-label="Brush size"><i style="width:${w * 0.7 + 3}px;height:${w * 0.7 + 3}px;background:${t.c}"></i></button>`).join('') +
+    `<button class="bsz ${t.mode === 'erase' ? 'on' : ''}" data-dt="erase" aria-label="Eraser">🧽</button><button class="bsz ${t.mode === 'fill' ? 'on' : ''}" data-dt="fill" aria-label="Fill">🪣</button><button class="bsz" data-dt="undo" aria-label="Undo">↶</button><button class="bsz" data-dt="clear" aria-label="Clear">🗑️</button>`;
+  // Players and scores
+  $('dPlayers').innerHTML = s.players.map((p, i) => {
+    const lp = G.lobby.find(x => x.pid === p.id), speaking = G.speaking && G.speaking.has(p.id);
+    return `<div class="pchip ${p.left ? 'away' : ''}" data-pid="${p.id}">${i === s.drawer && !s.over ? '<span class="pen">✏️</span>' : ''}${p.guessed ? '<span class="tick">✓</span>' : ''}${avatar(p.look, p.tint != null ? p.tint : i % 4, speaking ? 'speak' : '', p.id)}<b>${esc(p.id === pid ? 'You' : p.name)}${lp && lp.mic ? ' 🎙️' : ''}</b><span>${p.score}${p.gain && s.phase === 'reveal' ? ` <em>+${p.gain}</em>` : ''}</span></div>`;
+  }).join('');
+  $('dInput').placeholder = mine && s.phase === 'draw' ? 'Chat (only people who guessed see it)' : s.players[me] && s.players[me].guessed && s.phase === 'draw' ? 'You got it! Chat with others who guessed' : 'Type your guess';
+  renderDrawChat();
+  // Pop-ups: pick a word / the reveal
+  if (s.phase === 'choose' && mine && s.choices) {
+    $('dPopBox').innerHTML = `<b class="goldtxt big">Your turn to draw</b><span>Pick a word. Don’t say it out loud!</span><div class="col gap10 w100">${s.choices.map((w, k) => `<button class="btn gold" data-pick="${k}">${esc(w)}</button>`).join('')}</div>`;
+    $('dPop').classList.add('show');
+  } else if (s.phase === 'reveal') {
+    const got = s.players.filter((p, i) => i !== s.drawer && p.guessed).length;
+    $('dPopBox').innerHTML = `<span>The word was</span><b class="goldtxt big">${esc((s.word || '').toUpperCase())}</b><span>${got ? `${got} player${got > 1 ? 's' : ''} guessed it` : 'Nobody guessed it'}</span>
+      <div class="gains">${s.players.filter(p => p.gain).map(p => `<span>${esc(p.id === pid ? 'You' : p.name)} <b>+${p.gain}</b></span>`).join('')}</div>`;
+    $('dPop').classList.add('show');
+  } else $('dPop').classList.remove('show');
+}
+function renderDrawChat() {
+  const L = (G.dmsgs || []).slice(-30);
+  $('dChat').innerHTML = L.map(m => {
+    if (m.kind === 'right') return `<div class="gm ok">✓ <b>${esc(m.from === pid ? 'You' : m.name)}</b> guessed the word! +${m.gain}</div>`;
+    if (m.kind === 'close') return `<div class="gm close"><b>You</b>${esc(m.text)} <em>· so close!</em></div>`;
+    if (m.kind === 'inner') return `<div class="gm inner"><b>${esc(m.from === pid ? 'You' : m.name)}</b>${esc(m.text)}</div>`;
+    return `<div class="gm"><b>${esc(m.from === pid ? 'You' : m.name)}</b>${esc(m.text)}</div>`;
+  }).join('');
+  $('dChat').scrollTop = 1e6;
+}
+function onDrawMsg(m) {
+  G.dmsgs = G.dmsgs || []; G.dmsgs.push(m); if (G.dmsgs.length > 40) G.dmsgs.shift();
+  if (m.kind === 'right') { if (m.from === pid) { sfx('win'); buzz([60, 40, 120]); } else sfx('finish'); }
+  else if (m.kind === 'close') { sfx('pop'); buzz([30]); }
+  renderDrawChat();
+  if (m.kind === 'guess' || m.kind === 'chat') sayBubble({ from: m.from, text: m.text });
+}
+function drawTick() {
+  if (!G || !G.s || G.s.game !== 'draw') return;
+  const s = G.s, total = s.phase === 'choose' ? CHOOSE_MS : s.phase === 'draw' ? DRAW_MS : REVEAL_MS;
+  const left = G.dEnds && !s.over ? Math.max(0, G.dEnds - Date.now()) : 0;
+  $('dSec').textContent = Math.ceil(left / 1000);
+  $('dRing').setAttribute('stroke-dashoffset', (144.5 * (1 - left / total)).toFixed(1));
+  const sec = Math.ceil(left / 1000);
+  if (s.phase === 'draw' && sec <= 5 && sec > 0 && sec !== G.lastDTick) { G.lastDTick = sec; sfx('tick'); }
+}
+// Drawing with a finger
+{
+  const c = $('dCanvas'); let cur = null, sent = 0, timer = null, sid = 1;
+  const pt = e => { const r = c.getBoundingClientRect(); return [Math.round(Math.max(0, Math.min(1000, (e.clientX - r.left) / r.width * 1000))), Math.round(Math.max(0, Math.min(1000, (e.clientY - r.top) / r.height * 1000)))]; };
+  const flush = () => { if (!cur || !G || !G.net) return; const pts = cur.pts.slice(sent); if (!pts.length) return; sent = cur.pts.length; G.net.send({ t: 'dop', op: { t: 's', id: cur.id, c: cur.c, w: cur.w, pts } }); };
+  c.addEventListener('pointerdown', e => {
+    if (!iDraw()) return; e.preventDefault();
+    try { c.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ }
+    const t = G.dtool || { c: '#1d1d1d', w: 12, mode: 'pen' }, p = pt(e);
+    if (t.mode === 'fill') { const op = { t: 'fill', x: p[0], y: p[1], c: t.c }; onDrawOp(op); G.net.send({ t: 'dop', op }); sfx('pop'); return; }
+    cur = { t: 's', id: (Date.now() % 1e8) * 10 + (sid++ % 10), c: t.mode === 'erase' ? D_BG : t.c, w: t.mode === 'erase' ? Math.max(t.w, 24) : t.w, pts: [p] };
+    sent = 0; G.dops.push(cur); drawOp(cur, 0);
+    clearInterval(timer); timer = setInterval(flush, 60);
+  });
+  c.addEventListener('pointermove', e => {
+    if (!cur) return;
+    const p = pt(e), l = cur.pts[cur.pts.length - 1]; if (Math.abs(p[0] - l[0]) + Math.abs(p[1] - l[1]) < 4) return;
+    cur.pts.push(p); drawOp(cur, cur.pts.length - 1);
+  });
+  const end = () => { if (!cur) return; flush(); clearInterval(timer); cur = null; };
+  c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
+}
+$('dTools').addEventListener('click', e => {
+  if (!iDraw()) return;
+  const t = G.dtool = G.dtool || { c: '#1d1d1d', w: 12, mode: 'pen' };
+  const c = e.target.closest('[data-dc]'), w = e.target.closest('[data-dw]'), k = e.target.closest('[data-dt]');
+  if (c) { t.c = c.dataset.dc; if (t.mode === 'erase') t.mode = 'pen'; }
+  else if (w) { t.w = +w.dataset.dw; t.mode = 'pen'; }
+  else if (k) {
+    const a = k.dataset.dt;
+    if (a === 'undo') { if (G.dops.length) { onDrawOp({ t: 'undo' }); G.net.send({ t: 'dop', op: { t: 'undo' } }); } }
+    else if (a === 'clear') { onDrawOp({ t: 'clear' }); G.net.send({ t: 'dop', op: { t: 'clear' } }); }
+    else t.mode = t.mode === a ? 'pen' : a;
+  } else return;
+  sfx('click'); renderDraw();
+});
+$('dPop').addEventListener('click', e => { const b = e.target.closest('[data-pick]'); if (!b || !G || !G.net) return; sfx('click'); G.net.send({ t: 'dpick', i: +b.dataset.pick }); $('dPop').classList.remove('show'); });
+$('dForm').addEventListener('submit', e => { e.preventDefault(); const v = $('dInput').value.trim(); if (!v || !G || !G.net) return; G.net.send({ t: 'dguess', text: v }); $('dInput').value = ''; });
+$('dBack').onclick = () => leaveGame();
+function onDrawEnd(m) {
+  G.s = m.s; $('dPop').classList.remove('show');
+  const s = m.s, order = s.players.slice().sort((a, b) => b.score - a.score), W = s.players.find(p => p.id === s.winner) || order[0];
+  const iWon = W.id === pid, me = s.players.find(p => p.id === pid);
+  if (me) addHistory({ game: 'draw', mode: 'online', result: iWon ? 'won' : 'lost', of: s.players.length, rank: order.indexOf(me) + 1, score: `${me.score} points`,
+    opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint || 0 })) });
+  $('winTitle').textContent = iWon ? 'You won!' : `${W.name} won!`;
+  $('winSub').textContent = s.reason === 'left' ? 'Everyone else left the game' : `${W.score} points after ${s.rounds} rounds`;
+  danceStage({ look: W.look, tint: W.tint || 0, name: W.name }, order.filter(p => p.id !== W.id).map(p => ({ look: p.look, tint: p.tint || 0 })));
+  $('winRest').innerHTML = `<div class="rankchips">${order.filter(p => p.id !== W.id).map((p, k) => `<span class="rankchip"><b>${k + 2}</b>${esc(p.name)} · ${p.score}</span>`).join('')}</div>`;
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
+  $('winAgain').style.display = G.host ? 'flex' : 'none';
+  buzz([60, 40, 60, 40, 120]);
+  setTimeout(() => { show('win'); startDance(); }, 900);
+}
+
 // ---------- Win dance: everyone does bhangra to the dhol ----------
 // Sheets: img/dance<character>-<team colour>.webp, 8 frames. The music has a beat every 0.6 s
 // starting at 0.55 s; a knee goes up on each beat and lands half a beat later.
@@ -2222,9 +2429,9 @@ function endOnline() {
 function syncMicButtons() {
   if (!G || !G.voice) return;
   const on = G.voice.hasMic() && !G.voice.muted;
-  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
+  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
 }
-['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic'].forEach(id => $(id).onclick = async () => {
+['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic'].forEach(id => $(id).onclick = async () => {
   if (!G || !G.voice) return;
   if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
   else G.voice.setMuted(!G.voice.muted);
@@ -2235,12 +2442,12 @@ function syncMicButtons() {
 
 function renderLobby() {
   if (!G) return;
-  const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : 4;
-  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : G.game === 'arrows' ? 'Arrow race' : GAME_NAME[G.game || 'ludo']) + (G.game === 'sudoku' || G.game === 'arrows' ? '' : ' room');
+  const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : G.game === 'draw' ? 6 : 4;
+  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : G.game === 'arrows' ? 'Arrow race' : G.game === 'draw' ? 'Draw & Guess' : GAME_NAME[G.game || 'ludo']) + (G.game === 'sudoku' || G.game === 'arrows' ? '' : ' room');
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
   const rows = L.map((p, i) => {
-    const c = L.length >= 2 ? cols[i] : i;
+    const c = (L.length >= 2 && L.length <= 4 ? cols[i] : i) % 4;
     const sp = G.speaking.has(p.pid);
     let st = !p.connected ? 'Waiting for network...' : sp ? 'Speaking...' : p.host ? 'Host' : 'Ready';
     if (p.pid !== pid && p.connected) st += ' \u00b7 ' + voiceText(p.pid);
@@ -2301,6 +2508,7 @@ async function onNet(m) {
       if (m.s && m.s.game === 'patta') { onPattaState(m); break; }
       if (m.s && m.s.game === 'sudoku') { onRaceState(m); break; }
       if (m.s && m.s.game === 'arrows') { onArState(m); break; }
+      if (m.s && m.s.game === 'draw') { onDrawState(m); break; }
       G.s = m.s; G.turnEnds = m.turnEnds || null; G.busy = false;
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
@@ -2342,6 +2550,10 @@ async function onNet(m) {
     case 'send': onRaceEnd(m); break;
     case 'aprog': G.s = m.s; renderArRace(); break;
     case 'aend': onArEnd(m); break;
+    case 'dturn': case 'dhint': case 'dstate': onDrawState(m); break;
+    case 'dop': onDrawOp(m.op); break;
+    case 'dmsg': onDrawMsg(m); break;
+    case 'dend': onDrawEnd(m); break;
     case 'rend': onCarromEnd(m); break;
     case 'passed':
       if (G.s && G.s.game === 'carrom') { onCarromPassed(m); break; }

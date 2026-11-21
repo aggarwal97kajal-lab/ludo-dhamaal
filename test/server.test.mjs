@@ -139,4 +139,36 @@ room.clearTurn();
   r.onMsg(ws[0], JSON.stringify({ t: 'adone', order }));
   check(r.s.over && r.s.winner === 'y0', 'arrow race won');
 }
+// Draw & Guess: secret word, guesses, points, turns
+{
+  const r = new Room({}, {}); r.claimed = true; r.code = 'DRAWW';
+  const ws = ['a', 'b', 'c'].map(mk);
+  ws.forEach((w, i) => r.onMsg(w, JSON.stringify({ t: 'hello', pid: 'd' + i, name: 'D' + i, game: 'draw' })));
+  r.onMsg(ws[0], JSON.stringify({ t: 'start' }));
+  check(r.s && r.s.game === 'draw' && r.s.phase === 'choose', 'draw started');
+  const last = w => w.got.filter(m => m.s && m.s.game === 'draw').pop();
+  check(last(ws[0]).s.choices && last(ws[0]).s.choices.length === 3 && !last(ws[1]).s.choices, 'only the drawer sees the choices');
+  r.onMsg(ws[0], JSON.stringify({ t: 'dpick', i: 1 }));
+  const word = r.s.word;
+  check(r.s.phase === 'draw' && last(ws[0]).s.word === word && last(ws[1]).s.word === null, 'word secret');
+  r.onMsg(ws[0], JSON.stringify({ t: 'dop', op: { t: 's', id: 1, c: '#ff0000', w: 8, pts: [[10, 10], [20, 30]] } }));
+  check(ws[1].got.some(m => m.t === 'dop' && m.op.pts.length === 2), 'strokes relayed');
+  r.onMsg(ws[1], JSON.stringify({ t: 'dop', op: { t: 'clear' } }));
+  check(r.dops.length === 1, 'only the drawer draws');
+  r.onMsg(ws[1], JSON.stringify({ t: 'dguess', text: 'zzzz' }));
+  check(ws[2].got.some(m => m.t === 'dmsg' && m.kind === 'guess' && m.text === 'zzzz'), 'wrong guess shown to all');
+  r.s.players[1].lastGuess = 0; r.onMsg(ws[1], JSON.stringify({ t: 'dguess', text: word.toUpperCase() + ' ' }));
+  check(r.s.players[1].guessed && r.s.players[1].score > 0 && r.s.players[0].score > 0, 'right guess scores');
+  check(!ws[2].got.some(m => m.t === 'dmsg' && m.text && m.text.toLowerCase().includes(word)), 'word never sent as text');
+  r.onMsg(ws[2], JSON.stringify({ t: 'dguess', text: word }));
+  check(r.s.phase === 'reveal', 'all guessed -> reveal');
+  r.dClear(); r.s.turn++; r.dTurn('next');
+  check(r.s.drawer === 1 && r.s.phase === 'choose', 'next drawer');
+  r.onMsg(ws[1], JSON.stringify({ t: 'leave' }));
+  check(r.s.phase === 'reveal', 'drawer left -> reveal');
+  r.dClear();
+  r.s.turn = 999; r.dTurn('next');
+  check(r.s.over && r.s.winner, 'game ends after the rounds');
+  r.dClear();
+}
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);
