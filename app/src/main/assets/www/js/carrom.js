@@ -8,19 +8,31 @@ export const KIND = ['white', 'black'];
 export const STEP = 1 / 240;
 const MS = 1.6; // the striker is heavier than a coin
 
-function startCoins() {
+// Modes: 'classic' (Queen + 9 coins each), 'free' (any coin scores points),
+// 'disc' (8 coins each and one black "pitara" coin to pot last; no Queen).
+export const MODES = ['classic', 'free', 'disc'];
+export const POINTS = { white: 20, black: 10, queen: 50 };
+export const NEED = mode => mode === 'disc' ? 8 : 9;
+function startCoins(mode) {
+  if (mode === 'disc') {
+    const c = [{ x: 0.5, y: 0.5, kind: 'eight' }];
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; c.push({ x: 0.5 + Math.cos(a) * RC * 2.05, y: 0.5 + Math.sin(a) * RC * 2.05, kind: i % 2 ? 'black' : 'white' }); }
+    for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 + 0.31, d = RC * 4.05; c.push({ x: 0.5 + Math.cos(a) * d, y: 0.5 + Math.sin(a) * d, kind: i % 2 ? 'white' : 'black' }); }
+    return c.map((o, i) => ({ id: i, x: +o.x.toFixed(5), y: +o.y.toFixed(5), kind: o.kind, in: false }));
+  }
   const c = [{ x: 0.5, y: 0.5, kind: 'queen' }];
   for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; c.push({ x: 0.5 + Math.cos(a) * RC * 2.05, y: 0.5 + Math.sin(a) * RC * 2.05, kind: i % 2 ? 'black' : 'white' }); }
   for (let i = 0; i < 12; i++) { const a = i * Math.PI / 6, d = i % 2 ? RC * 3.6 : RC * 4.1; c.push({ x: 0.5 + Math.cos(a) * d, y: 0.5 + Math.sin(a) * d, kind: i % 2 ? 'white' : 'black' }); }
   return c.map((o, i) => ({ id: i, x: +o.x.toFixed(5), y: +o.y.toFixed(5), kind: o.kind, in: false }));
 }
 
-export function newCarrom(players) {
+export function newCarrom(players, mode) {
   // players: [{ id, name, look, kind, tint }] -> first plays white from the bottom
+  mode = MODES.includes(mode) ? mode : 'classic';
   return {
-    game: 'carrom',
+    game: 'carrom', mode, pts: [0, 0],
     players: players.slice(0, 2).map((p, i) => Object.assign({}, p, { color: i, left: false })),
-    coins: startCoins(), turn: 0, seq: 0, got: [0, 0], queen: null, over: false, winner: null, reason: '', shots: 0
+    coins: startCoins(mode), turn: 0, seq: 0, got: [0, 0], queen: null, over: false, winner: null, reason: '', shots: 0
   };
 }
 export const carromPlayer = (s, i) => s.players[i];
@@ -97,6 +109,8 @@ function backToCentre(s, coin) { const p = centreSpot(s.coins); coin.in = false;
 // res: { potted: [kinds], foul, again, queen: 'pocketed'|'covered'|'returned'|null, finish, msg }
 export function applyShot(s, shot) {
   if (s.over) return null;
+  if (s.mode === 'free') return applyFree(s, shot);
+  if (s.mode === 'disc') return applyDisc(s, shot);
   const me = s.turn, mine = KIND[me], theirs = KIND[1 - me];
   const sim = simulate(s.coins, shot);
   const byId = {}; s.coins.forEach(c => { byId[c.id] = c; });
@@ -140,6 +154,79 @@ export function applyShot(s, shot) {
   if (s.got[me] >= 9 && !queenOnBoard) { s.over = true; s.winner = me; s.reason = 'cleared'; res.finish = true; }
   else if (s.got[1 - me] >= 9 && s.queen && s.queen.state === 'covered') { s.over = true; s.winner = 1 - me; s.reason = 'cleared'; res.finish = true; }
   if (!s.over && !res.again) s.turn = 1 - me;
+  return res;
+}
+
+// Moves the coins for a shot and returns the pieces that dropped.
+function runShot(s, shot) {
+  const sim = simulate(s.coins, shot);
+  const byId = {}; s.coins.forEach(c => { byId[c.id] = c; });
+  sim.list.forEach(o => { if (o.id !== 'S') { const c = byId[o.id]; c.x = +o.x.toFixed(5); c.y = +o.y.toFixed(5); } });
+  const foul = sim.potted.some(o => o.id === 'S');
+  const coins = sim.potted.filter(o => o.id !== 'S').map(o => { const c = byId[o.id]; c.in = true; return c; });
+  s.seq++; s.shots++;
+  return { sim, foul, coins };
+}
+const left = (s, kind) => s.coins.filter(c => !c.in && c.kind === kind).length;
+
+// Free Style: every coin scores for whoever pockets it (white 20, black 10, Queen 50 once covered).
+// Pocket anything and you shoot again. Striker in: what you pocketed comes back and you lose 10.
+function applyFree(s, shot) {
+  const me = s.turn, { sim, foul, coins } = runShot(s, shot);
+  const res = { potted: coins.map(c => c.kind), foul, again: false, queen: null, finish: false, msg: '', steps: sim.steps };
+  const queenIn = coins.some(c => c.kind === 'queen'), other = coins.filter(c => c.kind !== 'queen');
+  if (foul) {
+    coins.forEach(c => backToCentre(s, c));
+    if (s.queen && s.queen.state === 'pending' && s.queen.by === me) { backToCentre(s, s.coins.find(c => c.kind === 'queen')); s.queen = null; }
+    s.pts[me] = Math.max(0, s.pts[me] - 10);
+    res.msg = 'Foul! The striker went in (-10)';
+  } else {
+    other.forEach(c => { s.pts[me] += POINTS[c.kind]; });
+    if (s.queen && s.queen.state === 'pending' && s.queen.by === me) {
+      if (other.length) { s.queen = { state: 'covered', by: me }; s.pts[me] += POINTS.queen; res.queen = 'covered'; }
+      else { backToCentre(s, s.coins.find(c => c.kind === 'queen')); s.queen = null; res.queen = 'returned'; }
+    }
+    if (queenIn) {
+      if (other.length) { s.queen = { state: 'covered', by: me }; s.pts[me] += POINTS.queen; res.queen = 'covered'; }
+      else { s.queen = { state: 'pending', by: me }; res.queen = 'pocketed'; }
+    }
+    res.again = coins.length > 0;
+  }
+  s.got = s.pts.slice();
+  // Over when every coin is gone, or nobody can catch up any more.
+  const rest = s.coins.filter(c => !c.in).reduce((a, c) => a + POINTS[c.kind], 0) + (s.queen && s.queen.state === 'pending' ? POINTS.queen : 0);
+  const lead = s.pts[0] - s.pts[1];
+  if (rest === 0 || Math.abs(lead) > rest) {
+    s.over = true; s.reason = 'points'; res.finish = true;
+    s.winner = lead > 0 ? 0 : lead < 0 ? 1 : me;
+  } else if (!res.again) s.turn = 1 - me;
+  return res;
+}
+
+// Disc Pool: pocket your 8 coins, then the black one. Black before that (or with a foul) loses.
+function applyDisc(s, shot) {
+  const me = s.turn, mine = KIND[me], theirs = KIND[1 - me], { sim, foul, coins } = runShot(s, shot);
+  const res = { potted: coins.map(c => c.kind), foul, again: false, queen: null, finish: false, msg: '', steps: sim.steps };
+  const eightIn = coins.some(c => c.kind === 'eight');
+  const ownIn = coins.filter(c => c.kind === mine).length;
+  coins.forEach(c => { if (c.kind === theirs) s.got[1 - me]++; });
+  if (eightIn) {
+    const clear = !foul && s.got[me] + ownIn >= NEED('disc');
+    s.got[me] += foul ? 0 : ownIn;
+    s.over = true; s.winner = clear ? me : 1 - me; s.reason = clear ? 'eight' : 'eight-early'; res.finish = true;
+    res.msg = clear ? 'Black coin in, game won!' : 'Black coin went in too early';
+    return res;
+  }
+  if (foul) {
+    coins.forEach(c => { if (c.kind === mine) backToCentre(s, c); });
+    if (s.got[me] > 0) { const back = s.coins.find(c => c.in && c.kind === mine); if (back) { backToCentre(s, back); s.got[me]--; } }
+    res.msg = 'Foul! The striker went in';
+  } else {
+    s.got[me] += ownIn;
+    res.again = ownIn > 0;
+    if (s.got[me] >= NEED('disc') && ownIn) res.msg = 'All 8 in! Now pocket the black coin';
+  }
+  if (!res.again) s.turn = 1 - me;
   return res;
 }
 
@@ -189,7 +276,9 @@ function powerFor(s, c, shot) {
 // Returns a shot { x, y, dx, dy, power }. skill 0..1: how exact the aim is.
 export function carromBot(s, skill) {
   const side = s.turn, mine = KIND[side];
-  const want = c => !c.in && (c.kind === mine || (c.kind === 'queen' && s.got[side] >= 1));
+  const want = s.mode === 'free' ? (c => !c.in)
+    : s.mode === 'disc' ? (c => !c.in && (s.got[side] >= NEED('disc') ? c.kind === 'eight' : c.kind === mine))
+      : (c => !c.in && (c.kind === mine || (c.kind === 'queen' && s.got[side] >= 1)));
   let best = null;
   for (let x = LO; x <= HI + 1e-9; x += 0.02) {
     const sp = strikerSpot(s.coins, side, x); if (Math.abs(sp.x - x) > 0.001) continue;
@@ -205,7 +294,7 @@ export function carromBot(s, skill) {
   }
   // No clean shot: hit the nearest coin of its colour fairly hard.
   const sp = strikerSpot(s.coins, side, 0.3 + Math.random() * 0.4);
-  const t = s.coins.filter(c => !c.in && c.kind === mine).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).find(c => forwardOk(side, c.y - sp.y)) || { x: 0.5, y: 0.5 };
+  const t = s.coins.filter(c => !c.in && (s.mode === 'free' ? c.kind !== 'queen' : c.kind === mine)).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).find(c => forwardOk(side, c.y - sp.y)) || { x: 0.5, y: 0.5 };
   let dx = t.x - sp.x, dy = t.y - sp.y; const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
   if (!forwardOk(side, dy)) { dx = 0; dy = side === 0 ? -1 : 1; }
   return { x: sp.x, y: sp.y, dx, dy, power: 0.7 };

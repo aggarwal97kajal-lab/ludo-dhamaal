@@ -57,6 +57,8 @@ export class Carrom3D {
     const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d');
     g.fillStyle = base; g.fillRect(0, 0, 128, 128);
     g.strokeStyle = ring; [44, 30, 14].forEach((r, i) => { g.lineWidth = i ? 4 : 6; g.beginPath(); g.arc(64, 64, r, 0, 7); g.stroke(); });
+    // Dark rim so light coins stand out on the light board (seen from above).
+    g.strokeStyle = dark ? 'rgba(255,255,255,.25)' : 'rgba(70,45,10,.75)'; g.lineWidth = 7; g.beginPath(); g.arc(64, 64, 60, 0, 7); g.stroke();
     g.fillStyle = dark ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.5)'; g.beginPath(); g.ellipse(48, 44, 22, 12, -0.6, 0, 7); g.fill();
     return new T.CanvasTexture(cv);
   }
@@ -79,6 +81,7 @@ export class Carrom3D {
       white: [M('#e9dfc5'), M('#ffffff', { map: this.coinTex('#f6efdc', '#c9b98f') }), M('#e9dfc5')],
       black: [M('#151515'), M('#ffffff', { map: this.coinTex('#1f1f1f', '#4a4a4a', true), roughness: 0.3 }), M('#151515')],
       queen: [M('#b0101f'), M('#ffffff', { map: this.coinTex('#d9142e', '#ffb3bd'), roughness: 0.3 }), M('#b0101f')],
+      eight: [M('#2a1058'), M('#ffffff', { map: this.coinTex('#3a1866', '#ffd34d', true), roughness: 0.3 }), M('#2a1058')],
       striker: [M('#e8e4ff'), M('#ffffff', { map: this.coinTex('#f4f2ff', '#3d5afe'), roughness: 0.25 }), M('#e8e4ff')]
     };
     this.coinG = new T.CylinderGeometry(RC * W, RC * W, 0.17, 36);
@@ -98,11 +101,24 @@ export class Carrom3D {
     this.far = new T.Sprite(new T.SpriteMaterial({ transparent: true, depthWrite: false })); this.far.center.set(0.5, 0); this.far.visible = false; S.add(this.far);
   }
 
+  // Striker design: 0 blue, 1 gold, 2 ruby.
+  setStrikerStyle(i) {
+    const st = [['#f4f2ff', '#3d5afe', '#e8e4ff'], ['#ffe9a0', '#b87800', '#ffd34d'], ['#ffd6e2', '#e5196f', '#ff9ab8']][i] || null; if (!st || this.strikerStyle === i) return;
+    this.strikerStyle = i;
+    this.MAT.striker[1].map = this.coinTex(st[0], st[1]); this.MAT.striker[1].needsUpdate = true;
+    this.MAT.striker[0].color.set(st[2]); this.MAT.striker[2].color.set(st[2]);
+  }
+  // Flat view: straight down on the board, like a table seen from above. Otherwise 3D.
+  setFlat(on) {
+    this.flat = !!on; this.camGoal = null; this.thTarget = null;
+    this.th = this.side ? Math.PI : 0; this.ph = 0.58; this.zoom = 1;
+    this.resize();
+  }
   // Who stands at the far side (a cartoon character picture).
   setFar(src) {
-    if (!src) { this.far.visible = false; return; }
+    if (!src) { this.far.visible = false; this.farSrc = null; return; }
     if (this.farSrc === src) return; this.farSrc = src;
-    new T.TextureLoader().load(src, t => { this.far.material.map = t; this.far.material.needsUpdate = true; const h = 3.2; this.far.scale.set(h * t.image.width / t.image.height, h, 1); this.far.visible = true; });
+    new T.TextureLoader().load(src, t => { this.far.material.map = t; this.far.material.needsUpdate = true; const h = 3.2; this.far.scale.set(h * t.image.width / t.image.height, h, 1); this.far.visible = !this.flat; });
   }
 
   resize() {
@@ -110,9 +126,22 @@ export class Carrom3D {
     this.R.setSize(w, h, false); this.cam.aspect = w / h;
     const half = Math.tan(this.cam.fov * Math.PI / 360) * Math.min(1, w / h);
     this.rad = Math.max(12, 6.9 / half);
+    // Flat: the whole board with its wooden frame fills the width.
+    this.flatH = ((W + 2) / 2) / half + 0.4;
     this.cam.updateProjectionMatrix(); this.updCam();
   }
   updCam() {
+    if (this.flat) {
+      // Up on the screen is the far side of the board.
+      this.cam.up.set(-Math.sin(this.th), 0, -Math.cos(this.th));
+      // Shift the board a little up the screen so the player cards don't cover it.
+      const H = this.flatH * this.zoom, d = 0.085 * 2 * Math.tan(this.cam.fov * Math.PI / 360) * H;
+      const ox = Math.sin(this.th) * d, oz = Math.cos(this.th) * d;
+      this.cam.position.set(ox, H, oz); this.cam.lookAt(ox, 0, oz);
+      this.far.visible = false; return;
+    }
+    this.cam.up.set(0, 1, 0);
+    if (this.farSrc && this.far.material.map) this.far.visible = true;
     const ph = this.ph, r = this.rad * this.zoom;
     this.cam.position.set(r * Math.sin(ph) * Math.sin(this.th), r * Math.cos(ph), r * Math.sin(ph) * Math.cos(this.th));
     this.cam.lookAt(Math.sin(this.th) * 0.9, 0, Math.cos(this.th) * 0.9);
@@ -128,6 +157,7 @@ export class Carrom3D {
   // ---- Free camera (360°): turn, tilt and zoom with fingers ----
   // Turn by a (radians) and tilt by b (radians).
   orbit(a, b) {
+    if (this.flat) return;
     this.thTarget = null; this.camGoal = null;
     this.th += a;
     this.ph = Math.min(1.12, Math.max(0.12, this.ph + b));
@@ -142,7 +172,7 @@ export class Carrom3D {
   }
   // Is the camera looking from the other side (so left and right are swapped on screen)?
   flipped() { return Math.cos(this.thTarget != null ? this.thTarget : this.th) < 0; }
-  moved() { return Math.abs(Math.atan2(Math.sin(this.th - (this.side ? Math.PI : 0)), Math.cos(this.th - (this.side ? Math.PI : 0)))) > 0.05 || Math.abs(this.ph - 0.58) > 0.03 || Math.abs(this.zoom - 1) > 0.03; }
+  moved() { if (this.flat) return false; return Math.abs(Math.atan2(Math.sin(this.th - (this.side ? Math.PI : 0)), Math.cos(this.th - (this.side ? Math.PI : 0)))) > 0.05 || Math.abs(this.ph - 0.58) > 0.03 || Math.abs(this.zoom - 1) > 0.03; }
 
   // Show the coins where the game says they are.
   setCoins(coins) {

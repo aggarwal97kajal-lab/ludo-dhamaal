@@ -7,7 +7,7 @@ import * as VoiceMod from './voice.js';
 import { Chess3D } from './chess3d.js';
 import { SnakeBoard3D } from './snakes3d.js';
 import { Carrom3D } from './carrom3d.js';
-import { newCarrom, applyShot, carromBot, carromPass, strikerSpot, forwardOk, BASE as CBASE, LO as CLO, HI as CHI } from './carrom.js';
+import { newCarrom, applyShot, carromBot, carromPass, strikerSpot, forwardOk, NEED as CNEED, BASE as CBASE, LO as CLO, HI as CHI } from './carrom.js';
 import { newSnakes, snakeRoll, snakePass, GOAL } from './snakes.js';
 import { Chess } from './chesslib.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
@@ -27,7 +27,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('ld:' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 };
 let profile = store.get('profile', null);
-const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true }, store.get('settings', {}));
+const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', carrom3d: false, striker: 0 }, store.get('settings', {}));
 // Volumes 0-100 (mic: 50 = normal, 100 = twice as loud).
 const vol = Object.assign({ master: 80, music: 60, sfx: 80, win: 90, voice: 100, mic: 50, vib: 70 }, store.get('vol', {}));
 prefs.vol = vol;
@@ -310,7 +310,7 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div><div class="l2">Board</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = GAME === 'carrom' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
@@ -328,12 +328,37 @@ function renderModes() {
     ['bot', 'Play vs computer', 'Play solo against a bot', 1, [1]],
     ['local', 'Pass & play', '2-4 players taking turns on one phone', 2, [2, 0, 3]]
   ];
-  $('modes').innerHTML = modes.map(m => `<button class="mode" data-mode="${m[0]}" style="background:${UI[m[3]]};border-color:${UI_EDGE[m[3]]};color:${UI_FG[m[3]]}">
+  const list = modes.map(m => `<button class="mode ${GAME === 'carrom' ? 'sm' : ''}" data-mode="${m[0]}" style="background:${UI[m[3]]};border-color:${UI_EDGE[m[3]]};color:${UI_FG[m[3]]}">
     <div class="col grow"><span class="t">${m[1]}</span><span class="s">${m[2]}</span></div>
-    <div class="ppl">${typeof m[4] === 'string' ? m[4] : m[4].map(i => body(i, i, 82)).join('')}</div></button>`).join('');
+    <div class="ppl">${typeof m[4] === 'string' ? m[4] : m[4].map(i => body(i, i, GAME === 'carrom' ? 58 : 82)).join('')}</div></button>`).join('');
+  $('modes').innerHTML = GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : list;
   music(true);
 }
+// Carrom: three ways to play and the striker design, picked above the play buttons.
+const CTYPES = [
+  ['classic', 'Carrom', 'Pocket your colour and cover the Queen'],
+  ['free', 'Free Style', 'Any coin scores: white 20, black 10, Queen 50'],
+  ['disc', 'Disc Pool', 'Pocket your 8 coins, then the black one']
+];
+const CTYPE_NAME = { classic: 'Carrom', free: 'Free Style', disc: 'Disc Pool' };
+function carromTypesHtml() {
+  return `<div class="ctypes">${CTYPES.map(t => `<button class="ctype ${t[0]} ${settings.carromMode === t[0] ? 'on' : ''}" data-ctype="${t[0]}"><svg viewBox="0 0 120 120">${carromPic(t[0])}</svg><span class="col"><b>${t[1]}</b><small>${t[2]}</small></span>${settings.carromMode === t[0] ? '<i class="tick">✓</i>' : ''}</button>`).join('')}</div>
+  <div class="panel strow"><div class="vic">🎯</div><div class="col grow"><b>Striker</b><small>Your striker design</small></div>${['blue', 'gold', 'ruby'].map((c, i) => `<button class="stk ${c} ${settings.striker === i ? 'on' : ''}" data-stk="${i}" aria-label="${c} striker"></button>`).join('')}</div>`;
+}
+function carromPic(mode) {
+  let s = '<rect x="4" y="4" width="112" height="112" rx="10" fill="#5a2a10"/><rect x="12" y="12" width="96" height="96" rx="4" fill="#f1d498"/>';
+  [[18, 18], [102, 18], [18, 102], [102, 102]].forEach(p => { s += `<circle cx="${p[0]}" cy="${p[1]}" r="6.5" fill="#120a06"/>`; });
+  const cols = mode === 'disc' ? ['#f6efdc', '#1f1f1f'] : ['#f6efdc', '#1f1f1f'];
+  const c = [[60, 60, mode === 'disc' ? '#3a1866' : '#d9142e']];
+  for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; c.push([60 + Math.cos(a) * 10, 60 + Math.sin(a) * 10, cols[i % 2]]); }
+  for (let i = 0; i < (mode === 'disc' ? 10 : 12); i++) { const a = i * Math.PI * 2 / (mode === 'disc' ? 10 : 12) + 0.3; c.push([60 + Math.cos(a) * 20, 60 + Math.sin(a) * 20, cols[(i + 1) % 2]]); }
+  c.forEach(o => { s += `<circle cx="${o[0]}" cy="${o[1]}" r="5" fill="${o[2]}" stroke="${o[2] === '#3a1866' ? '#ffd34d' : 'rgba(0,0,0,.35)'}" stroke-width="1.2"/>`; });
+  if (mode === 'free') s += '<text x="60" y="44" text-anchor="middle" font-size="13" font-weight="800" fill="#b87800" stroke="none">+20</text>';
+  return s + '<circle cx="60" cy="96" r="7" fill="#eef" stroke="#3d5afe" stroke-width="2.5"/>';
+}
 $('modes').addEventListener('click', e => {
+  const ct = e.target.closest('[data-ctype]'); if (ct) { settings.carromMode = ct.dataset.ctype; store.set('settings', settings); sfx('click'); renderModes(); return; }
+  const sk = e.target.closest('[data-stk]'); if (sk) { settings.striker = +sk.dataset.stk; store.set('settings', settings); sfx('click'); if (rboard) rboard.setStrikerStyle(settings.striker); renderModes(); return; }
   const b = e.target.closest('[data-mode]'); if (!b) return; sfx('click');
   const m = b.dataset.mode;
   if (m === 'online') createRoom();
@@ -745,7 +770,7 @@ function finishGame() {
 $('winAgain').onclick = () => {
   if (!G) return show('home');
   if (G.mode === 'online') { G.net.send({ t: 'again' }); return; }
-  if (G.s && G.s.game === 'carrom') return startCarrom(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
+  if (G.s && G.s.game === 'carrom') return startCarrom(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })), G.s.mode);
   if (G.s && G.s.game === 'chess') return startChess(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   const again = G.s.players.map(p => ({ id: p.id, name: p.name, color: p.color, kind: p.kind, look: p.look }));
   if (G.s.game === 'snakes') startSnakes(G.mode, again); else startOffline(G.mode, again);
@@ -1071,7 +1096,7 @@ const CSIDE = ['White', 'Black'], CDOT = ['#F4EFE6', '#1D1D1D'];
 function dropRBoard() { if (rboard) { rboard.destroy(); rboard = null; } }
 function ensureRBoard() {
   if (rboard && rboard.dead) rboard = null;
-  if (!rboard) { rboard = new Carrom3D(freshCanvas('rboard')); hookCarromInput(rboard); }
+  if (!rboard) { rboard = new Carrom3D(freshCanvas('rboard')); hookCarromInput(rboard); rboard.setStrikerStyle(settings.striker); rboard.setFlat(!settings.carrom3d); }
   else rboard.resize();
   rboard.paused = false;
   return rboard;
@@ -1094,8 +1119,8 @@ function goCarromSetup() {
   else { const inp = document.querySelector('[data-pn="1"]'); them = { id: 'p1', name: (inp && inp.value.trim()) || 'Player 2', kind: 'me', look: otherLook, tint: (profile.color + 2) % 4 }; }
   startCarrom(setupMode, [me, them]);
 }
-function startCarrom(mode, players) {
-  G = { mode, game: 'carrom', s: newCarrom(players), busy: false };
+function startCarrom(mode, players, type) {
+  G = { mode, game: 'carrom', s: newCarrom(players, type || settings.carromMode), busy: false };
   enterCarrom();
   nextCarrom();
 }
@@ -1116,10 +1141,11 @@ function enterCarrom() {
   dropBoard(); dropCBoard();
   show('carrom');
   ensureRBoard();
-  $('rRoom').textContent = 'Carrom · ' + (G.mode === 'online' ? 'Room ' + G.code : (G.mode === 'bot' ? 'Vs computer' : 'Pass & play'));
+  $('rRoom').textContent = CTYPE_NAME[G.s.mode || 'classic'] + ' · ' + (G.mode === 'online' ? 'Room ' + G.code : (G.mode === 'bot' ? 'Vs computer' : 'Pass & play'));
   $('rMic').classList.toggle('hide', G.mode !== 'online');
   $('rChat').style.visibility = G.mode === 'online' ? 'visible' : 'hidden';
   $('rHelp').checked = settings.carromHelp;
+  syncViewBtn();
   setBadges(); syncMicButtons();
   G.sx = 0.5;
   syncCarromBoard();
@@ -1163,7 +1189,7 @@ function renderCarromCards() {
     return `<div data-pid="${p.id}" class="gcard ${s.turn === i && !s.over ? 'turn' : ''} ${lp && (!lp.connected || lp.left) ? 'away' : ''}">
       ${avatar(p.look, p.tint != null ? p.tint : i ? 3 : 0, speaking ? 'speak' : '', p.id)}
       <div class="info"><span class="nm">${esc(p.name)}${p.id === pid && G.mode !== 'local' ? ' (You)' : ''}</span><span class="st">${st}</span></div>
-      <span class="coins"><i style="background:${CDOT[i]}"></i>${s.got[i]}/9${q}</span>
+      <span class="coins">${s.mode === 'free' ? `<b class="pts">${s.pts[i]}</b><small>pts</small>${q}` : `<i style="background:${CDOT[i]}"></i>${s.got[i]}/${CNEED(s.mode)}${q}${s.mode === 'disc' && s.got[i] >= 8 ? '<i class="q" style="background:#3a1866;border-color:#ffd34d"></i>' : ''}`}</span>
       ${G.mode === 'online' && p.id !== pid ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
     </div>`;
   };
@@ -1282,6 +1308,12 @@ function hookCarromInput(b) {
   c.addEventListener('pointercancel', e => { ptr.delete(e.pointerId); cam = null; down = null; if (G) G.aim = null; b.hideAim(); });
   c.addEventListener('wheel', e => { e.preventDefault(); b.pinch(1 - e.deltaY * 0.001); showResetView(); }, { passive: false });
 }
+function syncViewBtn() { const b = $('rView'); b.textContent = settings.carrom3d ? 'Flat view' : '3D view'; b.setAttribute('aria-label', settings.carrom3d ? 'Flat view' : '3D view'); $('rReset').classList.remove('show'); }
+$('rView').onclick = () => {
+  sfx('click'); settings.carrom3d = !settings.carrom3d; store.set('settings', settings);
+  if (rboard) { rboard.setFlat(!settings.carrom3d); placeCarromStriker(); }
+  syncViewBtn(); toast(settings.carrom3d ? '3D view: 2 fingers turn the board' : 'Flat view', '#3A2490');
+};
 function showResetView() { $('rReset').classList.toggle('show', !!(rboard && rboard.moved())); }
 $('rReset').onclick = () => { sfx('click'); if (rboard) rboard.resetView(); $('rReset').classList.remove('show'); setTimeout(placeCarromStriker, 400); };
 function slideCarrom(e) {
@@ -1326,6 +1358,7 @@ function carromAfter(res, P) {
   else if (res.queen === 'covered') { toast(`${name(shooter)} covered the Queen!`, '#00A844'); sfx('win'); }
   else if (res.queen === 'returned') toast('Queen not covered: back to the centre', '#3A2490');
   else if (res.msg) toast(res.msg, '#3A2490');
+  else if (G.s.mode === 'free' && res.potted.length) note(`+${res.potted.reduce((a, k) => a + ({ white: 20, black: 10 }[k] || 0), 0)} points! Shoot again`);
   else if (res.again) note('Pocketed! Shoot again');
   if (res.potted.length && !res.foul) buzz([30, 20, 30]);
   renderCarromCards();
@@ -1373,10 +1406,15 @@ function finishCarrom() {
   const meI = G.mode === 'local' ? -1 : s.players.findIndex(p => p.id === pid || (G.mode === 'bot' && p.kind === 'me'));
   const iWon = meI === s.winner;
   const mi = s.players.findIndex(p => p.id === pid);
-  if (mi >= 0) addHistory({ game: 'carrom', mode: G.mode, result: s.winner === mi ? 'won' : 'lost', of: 2, score: `${s.got[mi]}–${s.got[1 - mi]}`,
+  if (mi >= 0) addHistory({ game: 'carrom', mode: G.mode, result: s.winner === mi ? 'won' : 'lost', of: 2, score: (s.mode === 'free' ? `${s.pts[mi]}–${s.pts[1 - mi]} pts` : `${s.got[mi]}–${s.got[1 - mi]}`) + (s.mode && s.mode !== 'classic' ? ' · ' + CTYPE_NAME[s.mode] : ''),
     opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint != null ? p.tint : 3 })) });
   $('winTitle').textContent = iWon ? 'You won!' : `${W.name} won!`;
-  $('winSub').textContent = s.reason === 'left' ? 'The other player left the game' : `${iWon ? 'You' : W.name} pocketed all 9 coins first (${s.got[0]} - ${s.got[1]})`;
+  const who = iWon ? 'You' : W.name;
+  $('winSub').textContent = s.reason === 'left' ? 'The other player left the game'
+    : s.mode === 'free' ? `${who} scored more points (${s.pts[0]} - ${s.pts[1]})`
+      : s.reason === 'eight' ? `${who} pocketed all 8 coins and the black one`
+        : s.reason === 'eight-early' ? 'The black coin went in too early'
+          : `${who} pocketed all 9 coins first (${s.got[0]} - ${s.got[1]})`;
   const Lo = s.players[1 - s.winner];
   danceStage({ look: W.look, tint: W.tint != null ? W.tint : 0, name: W.name }, Lo ? [{ look: Lo.look, tint: Lo.tint != null ? Lo.tint : 3 }] : []);
   $('winRest').innerHTML = '';
@@ -1471,7 +1509,7 @@ function openRoom(code) {
   G.voice.setListen(settings.listen);
   G.voice.setVoiceVolume(vol.voice / 100); G.voice.setMicVolume(vol.mic / 50);
   G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (['game', 'chess', 'carrom'].includes(current)) renderCards(); };
-  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME });
+  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: settings.carromMode });
   roomPhotos.clear();
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
@@ -1521,7 +1559,7 @@ function syncMicButtons() {
 function renderLobby() {
   if (!G) return;
   const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : 4;
-  $('lobbyTitle').textContent = GAME_NAME[G.game || 'ludo'] + ' room';
+  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : GAME_NAME[G.game || 'ludo']) + ' room';
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
   const rows = L.map((p, i) => {
@@ -1563,6 +1601,7 @@ async function onNet(m) {
       const before = {}; (G.lobby || []).forEach(p => { before[p.pid] = p.connected; });
       G.lobby = m.players; G.host = m.host === pid;
       if (m.game && m.game !== G.game) { G.game = m.game; GAME = m.game; store.set('game', GAME); }
+      G.ctype = m.mode || 'classic';
       const live = m.players.filter(p => p.connected && !p.left).map(p => p.pid);
       if (G.wasOffline) { G.wasOffline = false; G.voice.restart(live); }
       else m.players.forEach(p => { if (p.pid !== pid && p.connected && before[p.pid] === false) G.voice.restart([p.pid]); });

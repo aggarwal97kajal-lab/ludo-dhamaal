@@ -88,7 +88,7 @@ export class Room {
     try {
       const r = await this.state.storage.get('room');
       if (!r) return;
-      Object.assign(this, { players: r.players || [], host: r.host, s: r.s, claimed: r.claimed, code: r.code, moves: r.moves || [], chat: r.chat || [], game: r.game || 'ludo', chessRound: r.chessRound || 0 });
+      Object.assign(this, { players: r.players || [], host: r.host, s: r.s, claimed: r.claimed, code: r.code, moves: r.moves || [], chat: r.chat || [], game: r.game || 'ludo', mode: r.mode || 'classic', chessRound: r.chessRound || 0 });
       this.players.forEach(p => { p.connected = false; });
       if (this.s && !this.s.over) { if (this.s.game === 'chess') this.armChess(); else this.armTurn(); }
       this.carromRound = r.carromRound || 0;
@@ -99,7 +99,7 @@ export class Room {
     if (!this.state || !this.state.storage) return;
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
-      const snap = { players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, tint: p.tint, left: !!p.left, mic: false })), host: this.host, s: this.s, claimed: this.claimed, code: this.code, moves: this.moves, chat: this.chat.slice(-30), game: this.game, chessRound: this.chessRound || 0, carromRound: this.carromRound || 0 };
+      const snap = { players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, tint: p.tint, left: !!p.left, mic: false })), host: this.host, s: this.s, claimed: this.claimed, code: this.code, moves: this.moves, chat: this.chat.slice(-30), game: this.game, mode: this.mode || 'classic', chessRound: this.chessRound || 0, carromRound: this.carromRound || 0 };
       this.state.storage.put('room', snap).catch(() => {});
     }, 200);
   }
@@ -130,7 +130,7 @@ export class Room {
   wsOf(pid) { for (const [ws, p] of this.sockets) if (p === pid) return ws; return null; }
 
   lobby() {
-    this.all({ t: 'lobby', code: this.code, game: this.game, host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host })) });
+    this.all({ t: 'lobby', code: this.code, game: this.game, mode: this.mode || 'classic', host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host })) });
   }
 
   onMsg(ws, raw) {
@@ -181,7 +181,7 @@ export class Room {
       if (this.s) return this.send(ws, { t: 'err', msg: 'This game has already started.', fatal: true });
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
       // The person who creates the room picks the game. Everyone who joins plays that game.
-      if (!this.players.length) this.game = ['chess', 'snakes', 'carrom'].includes(m.game) ? m.game : 'ludo';
+      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom'].includes(m.game) ? m.game : 'ludo'; this.mode = ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
       const max = this.game === 'chess' || this.game === 'carrom' ? 2 : 4;
       if (this.players.length >= max) return this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
       p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false };
@@ -277,7 +277,7 @@ export class Room {
       // The host plays white (bottom) in the first game; sides swap in every new game.
       this.carromRound = (this.carromRound || 0) + 1;
       const two = ready.slice(0, 2); if (this.carromRound % 2 === 0) two.reverse();
-      this.s = newCarrom(two.map(p => ({ id: p.pid, name: p.name, kind: 'remote', look: p.look, tint: p.tint })));
+      this.s = newCarrom(two.map(p => ({ id: p.pid, name: p.name, kind: 'remote', look: p.look, tint: p.tint })), this.mode);
       this.armTurn(CARROM_MS);
       this.all({ t: 'start', s: this.s, turnEnds: this.turnEnds });
       this.lobby();

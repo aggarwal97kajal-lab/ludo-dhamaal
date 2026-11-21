@@ -30,3 +30,18 @@ for (let g = 0; g < 6; g++) {
 }
 assert.ok(finished >= 3, 'bot games finish: ' + finished);
 console.log('carrom ok (' + finished + '/6 bot games finished)');
+// Free Style and Disc Pool
+for (const mode of ['free', 'disc']) {
+  let fin = 0;
+  for (let g = 0; g < 5; g++) {
+    const t = newCarrom(P, mode); let n = 0;
+    assert.equal(t.mode, mode);
+    if (mode === 'disc') { assert.equal(t.coins.length, 17); assert.equal(t.coins.filter(c => c.kind === 'white').length, 8); }
+    while (!t.over && n < 400) { const res = applyShot(t, carromBot(t, 0.9)); assert.ok(res); n++; }
+    if (mode === 'free' && t.over) assert.ok(t.pts[t.winner] >= t.pts[1 - t.winner], 'free: winner has more points');
+    if (mode === 'disc') assert.ok(t.got[0] <= 8 && t.got[1] <= 8);
+    if (t.over) fin++;
+  }
+  assert.ok(fin >= 3, mode + ' bot games finish: ' + fin);
+  console.log(mode + ' ok (' + fin + '/5)');
+}
