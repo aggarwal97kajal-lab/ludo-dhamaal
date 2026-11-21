@@ -24,6 +24,13 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -34,6 +41,56 @@ class MainActivity : AppCompatActivity() {
     private var pendingMic: PermissionRequest? = null
     private val micCode = 41
     private var pendingRoom: String? = null
+
+    // ---------- Profile photo (stays on this phone; the game keeps it in its own storage) ----------
+    private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
+        if (bmp != null) sendPhoto(bmp) else photoDone(null)
+    }
+    private val galleryPick = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) { photoDone(null); return@registerForActivityResult }
+        Thread {
+            val bmp = try { loadScaled(uri) } catch (e: Exception) { null }
+            runOnUiThread { if (bmp != null) sendPhoto(bmp) else photoDone(null) }
+        }.start()
+    }
+
+    // Reads a picture from the gallery at a small size, turned the right way up.
+    private fun loadScaled(uri: Uri): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= 512 && bounds.outHeight / (sample * 2) >= 512) sample *= 2
+        val bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } ?: return null
+        val rot = try {
+            contentResolver.openInputStream(uri)?.use {
+                when (ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                    ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                    ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                    else -> 0f
+                }
+            } ?: 0f
+        } catch (e: Exception) { 0f }
+        if (rot == 0f) return bmp
+        return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(rot) }, true)
+    }
+
+    // Cuts a square from the middle, makes it 256 x 256 and gives it to the game.
+    private fun sendPhoto(src: Bitmap) {
+        try {
+            val side = minOf(src.width, src.height)
+            val sq = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
+            val small = Bitmap.createScaledBitmap(sq, 256, 256, true)
+            val out = ByteArrayOutputStream()
+            small.compress(Bitmap.CompressFormat.JPEG, 82, out)
+            photoDone("data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
+        } catch (e: Exception) { photoDone(null) }
+    }
+
+    private fun photoDone(data: String?) {
+        val arg = if (data == null) "null" else "'" + data + "'"
+        web.evaluateJavascript("window.ldPhoto && window.ldPhoto($arg)", null)
+    }
 
     // Room code from a link like .../r/ABCDE or pitara://room/ABCDE
     private fun roomFrom(intent: Intent?): String? {
@@ -203,6 +260,15 @@ class MainActivity : AppCompatActivity() {
     inner class Bridge {
         @JavascriptInterface
         fun speaker() { runOnUiThread { useLoudspeaker() } } // picks headphones if connected, else loudspeaker
+
+        @JavascriptInterface
+        fun pickPhoto(from: String) {
+            runOnUiThread {
+                try {
+                    if (from == "camera") takePhoto.launch(null) else galleryPick.launch("image/*")
+                } catch (e: Exception) { photoDone(null) }
+            }
+        }
 
         @JavascriptInterface
         fun takeRoom(): String { val c = pendingRoom ?: ""; pendingRoom = null; return c }

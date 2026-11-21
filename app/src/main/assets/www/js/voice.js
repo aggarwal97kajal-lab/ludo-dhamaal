@@ -27,15 +27,41 @@ export class Voice {
     this.deafened = new Set();
     this.ac = null;
     this.timer = null;
+    this.raw = null;            // the real mic
+    this.micGain = null;        // my mic volume (Web Audio gain between the mic and the call)
+    this.voiceVol = 1;          // friends' voice volume 0..1
+    this.micVol = 1;            // 0..2
+  }
+
+  // Friends' voice volume, 0..1
+  setVoiceVolume(x) {
+    this.voiceVol = Math.max(0, Math.min(1, x));
+    for (const [, p] of this.peers) if (p.audio) p.audio.volume = this.voiceVol;
+  }
+  // My mic volume, 0..2 (1 = normal)
+  setMicVolume(x) {
+    this.micVol = Math.max(0, Math.min(2, x));
+    if (this.micGain) this.micGain.gain.value = this.micVol;
   }
 
   async start(me, wantMic) {
     const had = !!this.local;
     if (!this.local) {
       try {
-        this.local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        this.raw = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        this.local = this.raw;
+        // Send the mic through a volume control. If that does not work on this phone, send it as it is.
+        try {
+          this.ac = this.ac || new (window.AudioContext || window.webkitAudioContext)();
+          if (this.ac.state === 'suspended') await Promise.race([this.ac.resume(), new Promise(r => setTimeout(r, 800))]);
+          if (this.ac.state === 'running') {
+            const src = this.ac.createMediaStreamSource(this.raw), g = this.ac.createGain(), out = this.ac.createMediaStreamDestination();
+            g.gain.value = this.micVol; src.connect(g); g.connect(out);
+            this.micGain = g; this.local = out.stream;
+          }
+        } catch (x) { this.local = this.raw; this.micGain = null; }
       } catch (e) {
-        this.local = null;
+        this.local = null; this.raw = null;
       }
     }
     // Only start calling people once we know whether we have a mic, so our voice is
@@ -55,6 +81,7 @@ export class Voice {
   setMuted(m) {
     this.muted = m;
     if (this.local) this.local.getAudioTracks().forEach(t => { t.enabled = !m; });
+    if (this.raw && this.raw !== this.local) this.raw.getAudioTracks().forEach(t => { t.enabled = !m; });
   }
 
   // Keep connections in line with the people in the room.
@@ -84,6 +111,7 @@ export class Voice {
       a.style.display = 'none'; document.body.appendChild(a);
       if (window.LDNative && window.LDNative.speaker) window.LDNative.speaker();
       a.muted = this.deafened.has(pid) || this.allOff;
+      a.volume = this.voiceVol;
       peer.audio = a; a.play().catch(() => {});
       try {
         this.ac = this.ac || new (window.AudioContext || window.webkitAudioContext)();
@@ -163,7 +191,7 @@ export class Voice {
       if (s !== p.speaking) { p.speaking = s; this.onSpeaking(pid, s); }
     }
     if (this.local && !this.localAn) {
-      try { this.ac = this.ac || new (window.AudioContext || window.webkitAudioContext)(); const src = this.ac.createMediaStreamSource(this.local); this.localAn = this.ac.createAnalyser(); this.localAn.fftSize = 256; src.connect(this.localAn); } catch (x) { this.localAn = null; }
+      try { this.ac = this.ac || new (window.AudioContext || window.webkitAudioContext)(); const src = this.ac.createMediaStreamSource(this.raw || this.local); this.localAn = this.ac.createAnalyser(); this.localAn.fftSize = 256; src.connect(this.localAn); } catch (x) { this.localAn = null; }
     }
     if (this.localAn) {
       this.localAn.getByteTimeDomainData(buf);
@@ -182,7 +210,8 @@ export class Voice {
   stop() {
     for (const pid of [...this.peers.keys()]) this.drop(pid);
     if (this.local) this.local.getTracks().forEach(t => t.stop());
-    this.local = null; this.localAn = null;
+    if (this.raw) this.raw.getTracks().forEach(t => t.stop());
+    this.local = null; this.raw = null; this.micGain = null; this.localAn = null;
     if (this.timer) clearInterval(this.timer); this.timer = null;
   }
 }

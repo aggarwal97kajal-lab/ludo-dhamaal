@@ -1,6 +1,6 @@
 import { newGame, roll, move, passTurn, botChoice, seatColors, playerOf, FINISH } from './rules.js';
 import { Board3D } from './board3d.js';
-import { sfx, buzz, music, prefs, unlock , playTrack, stopTrack, trackTime } from './sound.js';
+import { sfx, buzz, music, prefs, unlock, playTrack, stopTrack, trackTime, applyVolumes } from './sound.js';
 import { Net } from './net.js';
 import { Voice, loadIce } from './voice.js';
 import * as VoiceMod from './voice.js';
@@ -27,7 +27,10 @@ const store = {
   set(k, v) { try { localStorage.setItem('ld:' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 };
 let profile = store.get('profile', null);
-const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true }, store.get('settings', {}));
+const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true }, store.get('settings', {}));
+// Volumes 0-100 (mic: 50 = normal, 100 = twice as loud).
+const vol = Object.assign({ master: 80, music: 60, sfx: 80, win: 90, voice: 100, mic: 50, vib: 70 }, store.get('vol', {}));
+prefs.vol = vol;
 let pid = store.get('pid', null);
 if (!pid) { pid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); store.set('pid', pid); }
 Object.assign(prefs, { sound: settings.sound, music: settings.music, vibrate: settings.vibrate });
@@ -37,7 +40,13 @@ const CHAR_NAME = ['Riya', 'Arjun', 'Dadaji', 'Chotu'];
 const ch = look => ((Number(look) || 0) % 4 + 4) % 4;
 const face = (look, c) => `img/c${ch(look)}-${c}-face.png`;
 const body = (look, c, h) => `<img class="body" src="img/c${ch(look)}-${c}.png" alt="" style="height:${h}px">`;
-const avatar = (look, color, cls) => `<div class="av ${cls || ''}" style="border-color:${UI_EDGE[color]};background:${UI[color]}"><img src="${face(look, color)}" alt=""></div>`;
+// Profile photos: yours is kept on this phone only (ld:photo). Other players' photos come from
+// the room while you play online and are never saved.
+let myPhoto = store.get('photo', null);
+const roomPhotos = new Map();
+const photoOf = id => !id ? null : id === pid ? myPhoto : roomPhotos.get(id) || null;
+const faceImg = (look, color, id) => { const ph = photoOf(id); return ph ? `<div class="in photo" style="background:${UI[color]}"><img src="${ph}" alt=""></div>` : `<div class="in" style="background:${UI[color]}"><img src="${face(look, color)}" alt=""></div>`; };
+const avatar = (look, color, cls, id) => `<div class="av ${cls || ''}">${faceImg(look, color, id)}</div>`;
 
 // ---------- Screens ----------
 let current = 'splash';
@@ -50,7 +59,15 @@ function show(id) {
   if (rboard) rboard.paused = id !== 'carrom';
   if (id === 'home') renderHome();
   if (id === 'gamehome') renderModes();
+  if (id === 'history') renderHistory();
+  const nav = ['home', 'history'].includes(id) || (id === 'profile' && !!profile);
+  $('bnav').classList.toggle('show', nav);
+  document.querySelectorAll('#bnav [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === id));
 }
+document.querySelectorAll('#bnav [data-nav]').forEach(b => b.onclick = () => {
+  const to = b.dataset.nav; if (to === current) return; sfx('click');
+  if (to === 'profile') openProfile(); else show(to);
+});
 function modal(html) { $('modalBox').innerHTML = html; $('modal').classList.add('show'); }
 function closeModal() { $('modal').classList.remove('show'); }
 $('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
@@ -106,48 +123,171 @@ function offerRejoin() {
 }
 
 // ---------- Profile ----------
-let pfLook = 0, pfColor = 0;
+let pfLook = 0, pfColor = 0, pfPhoto = null;
 function openProfile() {
-  pfLook = profile ? ch(profile.look) : 0; pfColor = profile ? profile.color : 0;
+  pfLook = profile ? ch(profile.look) : 0; pfColor = profile ? profile.color : 0; pfPhoto = myPhoto;
   $('pfName').value = profile ? profile.name : '';
   $('pfErr').textContent = '';
+  $('pfTitle').textContent = profile ? 'My Profile' : 'Create your player';
+  $('pfBack').style.visibility = profile ? 'visible' : 'hidden';
+  $('pfIntro').style.display = profile ? 'none' : '';
+  $('pfStats').style.display = profile ? '' : 'none';
+  $('pfStats').innerHTML = statsHtml(stats(), true);
+  $('pfSave').textContent = profile ? 'Save profile' : 'Continue';
   renderProfile(); show('profile');
 }
 function renderProfile() {
-  $('pfPreview').innerHTML = `<img src="${face(pfLook, pfColor)}" alt="">`;
-  $('pfPreview').style.background = UI[pfColor];
-  $('pfLooks').innerHTML = [0, 1, 2, 3].map(i => `<button class="charbtn ${i === pfLook ? 'on' : ''}" data-l="${i}" style="background:${UI[pfColor]}" aria-label="${CHAR_NAME[i]}">${body(i, pfColor, 118)}<span>${CHAR_NAME[i]}</span></button>`).join('');
-  $('pfColors').innerHTML = UI.map((c, i) => `<button class="colbtn ${i === pfColor ? 'on' : ''}" data-c="${i}" style="background:${c}" aria-label="${CNAME[i]} colour"></button>`).join('');
+  $('pfPreview').innerHTML = pfPhoto ? `<div class="in photo" style="background:${UI[pfColor]}"><img src="${pfPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[pfColor]}"><img src="${face(pfLook, pfColor)}" alt=""></div>`;
+  $('pfLooks').innerHTML = [0, 1, 2, 3].map(i => `<button class="lookm ${i === pfLook ? 'on' : ''}" data-l="${i}" aria-label="${CHAR_NAME[i]}"><div class="in" style="background:${UI[pfColor]}"><img src="${face(i, pfColor)}" alt=""></div><small>${CHAR_NAME[i]}</small></button>`).join('');
+  $('pfColors').innerHTML = UI.map((c, i) => `<button class="gemc ${i === pfColor ? 'on' : ''}" data-c="${i}" style="background:${c};color:${c}" aria-label="${CNAME[i]} colour"></button>`).join('');
+  document.querySelectorAll('#pfPhotoBtns [data-ph]').forEach(b => b.classList.toggle('on', b.dataset.ph === 'cartoon' ? !pfPhoto : false));
 }
 $('pfLooks').addEventListener('click', e => { const b = e.target.closest('[data-l]'); if (b) { pfLook = +b.dataset.l; sfx('click'); renderProfile(); } });
 $('pfColors').addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) { pfColor = +b.dataset.c; sfx('click'); renderProfile(); } });
 $('pfName').addEventListener('input', () => { $('pfErr').textContent = ''; });
+$('pfBack').onclick = () => show('home');
+// Photo: the Android app opens the camera or gallery and sends back a small square JPEG.
+// In a browser, a file picker is used instead.
+function askPhoto(from) {
+  if (window.LDNative && window.LDNative.pickPhoto) { try { window.LDNative.pickPhoto(from); return; } catch (e) { /* use the file picker */ } }
+  const f = $('pfFile'); if (from === 'camera') f.setAttribute('capture', 'user'); else f.removeAttribute('capture'); f.value = ''; f.click();
+}
+window.ldPhoto = data => {
+  if (!data) return;
+  squarePhoto(data, 256).then(d => { pfPhoto = d; renderProfile(); sfx('pop'); }).catch(() => {});
+};
+$('pfFile').addEventListener('change', e => {
+  const file = e.target.files && e.target.files[0]; if (!file) return;
+  const r = new FileReader(); r.onload = () => window.ldPhoto(r.result); r.readAsDataURL(file);
+});
+// Centre-crops a picture to a square JPEG of the given size.
+function squarePhoto(src, size) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement('canvas'); c.width = c.height = size;
+      const side = Math.min(im.width, im.height);
+      c.getContext('2d').drawImage(im, (im.width - side) / 2, (im.height - side) / 2, side, side, 0, 0, size, size);
+      res(c.toDataURL('image/jpeg', size > 200 ? 0.82 : 0.75));
+    };
+    im.onerror = rej; im.src = src;
+  });
+}
+$('pfPhotoBtns').addEventListener('click', e => {
+  const b = e.target.closest('[data-ph]'); if (!b) return; sfx('click');
+  if (b.dataset.ph === 'cartoon') { pfPhoto = null; renderProfile(); return; }
+  askPhoto(b.dataset.ph);
+});
+$('pfCam').onclick = () => {
+  sfx('click');
+  modal(`<h3>Change photo</h3><div class="grid3"><button class="pbtn" id="mCam"><span>📷</span>Camera</button><button class="pbtn" id="mGal"><span>🖼️</span>Gallery</button><button class="pbtn" id="mCart"><span>🙂</span>Cartoon</button></div><button class="btn ghost" id="mNo">Cancel</button>`);
+  $('mCam').onclick = () => { closeModal(); askPhoto('camera'); };
+  $('mGal').onclick = () => { closeModal(); askPhoto('gallery'); };
+  $('mCart').onclick = () => { closeModal(); pfPhoto = null; renderProfile(); };
+  $('mNo').onclick = closeModal;
+};
 $('pfSave').onclick = () => {
   const name = $('pfName').value.trim().replace(/\s+/g, ' ');
   if (name.length < 2) { $('pfErr').textContent = 'Enter a name with at least 2 letters'; return; }
+  const first = !profile;
   profile = { name, look: pfLook, color: pfColor };
-  store.set('profile', profile); sfx('pop'); show('home'); takeLinkRoom();
+  store.set('profile', profile);
+  if (pfPhoto !== myPhoto) {
+    myPhoto = pfPhoto;
+    try { if (myPhoto) localStorage.setItem('ld:photo', JSON.stringify(myPhoto)); else localStorage.removeItem('ld:photo'); } catch (e) { toast('Photo too big to save', '#E0103A'); }
+    sendMyPhoto();
+  }
+  sfx('pop'); show('home'); if (first) takeLinkRoom(); else toast('Profile saved', '#3A2490');
 };
+// In an online room, share your photo with the players in it (small copy, not saved by the server).
+function sendMyPhoto() {
+  if (!G || !G.net) return;
+  if (!myPhoto) { G.net.send({ t: 'photo', img: '' }); return; }
+  squarePhoto(myPhoto, 128).then(d => { if (G && G.net) G.net.send({ t: 'photo', img: d }); }).catch(() => {});
+}
+
+// ---------- Match history (kept on this phone) ----------
+let history = store.get('history', []);
+function addHistory(h) {
+  if (!G || G.recorded) return;
+  G.recorded = true;
+  history.unshift(Object.assign({ at: Date.now() }, h));
+  if (history.length > 120) history.length = 120;
+  store.set('history', history);
+}
+function stats(list) {
+  const L = list || history;
+  const won = L.filter(h => h.result === 'won').length, lost = L.filter(h => h.result === 'lost').length;
+  let streak = 0; for (const h of L) { if (h.result === 'won') streak++; else if (h.result === 'lost') break; }
+  const by = {}; L.forEach(h => { if (h.result === 'won') by[h.game] = (by[h.game] || 0) + 1; });
+  const best = Object.keys(by).sort((x, y) => by[y] - by[x])[0] || null;
+  return { played: L.length, won, lost, rate: L.length ? Math.round(won / L.length * 100) : 0, streak, best };
+}
+const GAME_ICON = { ludo: '🎲', chess: '&#9822;', carrom: '🎯', snakes: '🐍' };
+function statsHtml(st, profileView) {
+  const four = profileView
+    ? [['gold', st.played, 'Played'], ['green', st.won, 'Won'], ['', st.rate + '%', 'Win rate'], ['', (st.streak ? '🔥' : '') + st.streak, 'Streak']]
+    : [['gold', st.played, 'Games'], ['green', st.won, 'Wins'], ['', st.lost, 'Losses'], ['', st.best ? `<span class="${st.best === 'chess' ? 'gl' : ''}">${GAME_ICON[st.best]}</span>` : '–', st.best ? 'Best at ' + GAME_NAME[st.best].split(' ')[0] : 'Best game']];
+  return four.map(x => `<div class="stat"><b class="${x[0]}">${x[1]}</b><span>${x[2]}</span></div>`).join('');
+}
+let hFilter = 'all';
+function dayLabel(t) {
+  const d = new Date(t), now = new Date(), a = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (t >= a) return 'Today';
+  if (t >= a - 864e5) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+}
+const MODE_TEXT = { online: 'online', bot: 'vs computer', local: 'pass & play' };
+const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)]);
+function renderHistory() {
+  $('hStats').innerHTML = statsHtml(stats(), false);
+  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
+  const L = history.filter(h => hFilter === 'all' || h.game === hFilter);
+  if (!L.length) { $('hList').innerHTML = `<div class="panel hempty"><b>No games yet</b>Play a game and it will show up here.</div>`; return; }
+  const groups = [];
+  L.forEach(h => { const k = dayLabel(h.at); let g = groups[groups.length - 1]; if (!g || g.k !== k) groups.push(g = { k, list: [] }); g.list.push(h); });
+  $('hList').innerHTML = groups.map(g => `<div class="hday">${g.k}</div><div class="panel hgroup" style="padding:0">${g.list.map(h => {
+    const rib = h.result === 'won' ? '<span class="rib w">WON</span>' : h.result === 'draw' ? '<span class="rib d">DRAW</span>' : `<span class="rib l">${h.rank && h.of > 2 ? ordinal(h.rank) + ' place' : 'LOST'}</span>`;
+    const opp = (h.opp || []).map(o => o.name);
+    const vs = opp.length ? (opp.length > 2 ? `${opp.length + 1} players` : 'vs ' + opp.map(esc).join(', ')) : '';
+    const time = new Date(h.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const parts = [h.score ? esc(h.score) : '', vs, MODE_TEXT[h.mode] || '', time].filter(Boolean);
+    return `<div class="hitem"><div class="gbadge ${h.game}">${GAME_ICON[h.game] || '🎲'}</div><div class="grow minw0"><div class="t">${GAME_NAME[h.game].replace(' & Ladders', '')} ${rib}</div><div class="s">${parts.join(', ')}</div></div>
+      <div class="minis">${(h.opp || []).slice(0, 3).map(o => `<div class="mini" style="background:${UI[o.tint || 0]}"><img src="${face(o.look, o.tint || 0)}" alt=""></div>`).join('')}</div></div>`;
+  }).join('')}</div>`).join('');
+}
+$('hFilters').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) { hFilter = b.dataset.f; sfx('click'); renderHistory(); } });
 
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
 const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom' };
+const ARCH = '<svg class="frame" viewBox="0 0 176 228" preserveAspectRatio="none"><use href="#archOuter" fill="none" stroke="url(#g)" stroke-width="7"/><use href="#archInner" fill="none" stroke="#ffe17a" stroke-width="1.2" opacity=".8"/><circle cx="88" cy="7" r="5" fill="GEM" stroke="#ffe17a" stroke-width="2"/></svg>';
 function renderHome() {
-  $('homeAv').outerHTML = `<div class="av sm" id="homeAv" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
+  $('homeAv').innerHTML = myPhoto ? `<div class="in photo" style="background:${UI[profile.color]}"><img src="${myPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
   $('homeName').textContent = profile.name;
-  $('games').innerHTML = `
-    <button class="gamecard ludo" data-game="ludo"><div class="col"><span class="t">Ludo</span><span class="s">3D Ludo with walking players. Online with friends, vs computer or pass & play.</span><span class="play">Play</span></div>
-      <div class="art">${[0, 3].map(i => body(i, i, 128)).join('')}</div></button>
-    <button class="gamecard chess" data-game="chess"><div class="col"><span class="t">Chess</span><span class="s">3D chess with move help that shows where each piece can go.</span><span class="play">Play</span></div>
-      <div class="art glyphs">&#9819;<b>&#9822;</b></div></button>
-    <button class="gamecard carrom" data-game="carrom"><div class="col"><span class="t">Carrom</span><span class="s">Flick the striker and pocket your coins. Aim arrows show where coins go.</span><span class="play">Play</span></div>
-      <div class="art"><div class="cboardart"><i style="left:6px;top:6px;background:#120a06"></i><i style="right:6px;top:6px;background:#120a06"></i><i style="left:6px;bottom:6px;background:#120a06"></i><i style="right:6px;bottom:6px;background:#120a06"></i><i style="left:40px;top:40px;background:#d9142e"></i><i style="left:26px;top:38px;background:#f6efdc;border:1px solid #c9b98f"></i><i style="left:54px;top:40px;background:#1f1f1f"></i><i style="left:40px;top:24px;background:#1f1f1f"></i><i style="left:40px;top:56px;background:#f6efdc;border:1px solid #c9b98f"></i></div></div></button>
-    <button class="gamecard snakes" data-game="snakes"><div class="col"><span class="t">Snakes & Ladders</span><span class="s">Climb the ladders, dodge the snakes. First to 100 wins!</span><span class="play">Play</span></div>
-      <div class="art">${body(2, 2, 120)}</div></button>
-    <div class="gamecard soon"><span class="t">More games coming soon</span></div>`;
+  const st = stats();
+  $('homeChips').innerHTML = `<span class="hchip g">🏆 ${st.won} win${st.won === 1 ? '' : 's'}</span>${st.streak > 1 ? `<span class="hchip">🔥 ${st.streak} streak</span>` : ''}`;
+  if (!$('homeLights').innerHTML) {
+    const cols = ['#ffd34d', '#ff5f93', '#4be3d0', '#ffd34d', '#ff9f43'];
+    let h = '<path d="M0 6 Q102 46 205 14 Q308 46 410 6" fill="none" stroke="#3b2a1a" stroke-width="1.5"/>';
+    for (let i = 1; i < 28; i++) {
+      const t = i / 28, x = t * 410, u = t < 0.5 ? t * 2 : (t - 0.5) * 2, y = 6 + Math.sin(u * Math.PI) * 22 + (Math.abs(t - 0.5) < 0.02 ? -10 : 0), c = cols[i % 5];
+      h += `<g class="b" style="animation-delay:${(i % 7) * 0.33}s"><circle cx="${x}" cy="${y + 7}" r="9" fill="${c}" opacity=".25"/><circle cx="${x}" cy="${y + 7}" r="3.6" fill="${c}"/><circle cx="${x - 1}" cy="${y + 6}" r="1.2" fill="#fff"/></g>`;
+    }
+    $('homeLights').innerHTML = h;
+  }
+  const arch = (g, gem, count, art, name, sub, cls) => `<button class="arch ${g}" data-game="${g}"><div class="inner"></div>${ARCH.replace('GEM', gem)}<span class="count">${count}</span><div class="art">${art}</div><div class="name"><b class="${cls || ''}">${name}</b><span>${sub}</span></div></button>`;
+  const pk = (l, t) => `<i style="${l};background:${t}"></i>`;
+  $('games').innerHTML =
+    arch('ludo', '#e5196f', '2-4 players', body(0, 0, 138) + body(3, 3, 148), 'Ludo', 'Walk your team home') +
+    arch('chess', '#0fb5a5', '2 players', '<span class="glyph w">&#9819;</span><span class="glyph g">&#9822;</span>', 'Chess', 'With move help') +
+    arch('carrom', '#e5196f', '2 players', `<div class="cboard3">${pk('left:2px;top:2px', '#120a06')}${pk('right:2px;top:2px', '#120a06')}${pk('left:2px;bottom:2px', '#120a06')}${pk('right:2px;bottom:2px', '#120a06')}${pk('left:39px;top:39px;box-shadow:0 2px 0 #6a0010', '#d9142e')}${pk('left:22px;top:41px;box-shadow:0 2px 0 #9b8a5a', '#f6efdc')}${pk('left:57px;top:35px;box-shadow:0 2px 0 #000', '#1f1f1f')}<i style="left:42px;top:60px;width:20px;height:20px;background:#eef;border:3px solid #3d5afe"></i></div>`, 'Carrom', 'Flick and pocket') +
+    arch('snakes', '#0fb5a5', '2-4 players', body(2, 2, 146), 'Snakes &amp; Ladders', 'First to 100 wins', 'long');
   music(true);
 }
+$('homeAv').onclick = () => { sfx('click'); openProfile(); };
+$('homeHistory').onclick = () => { sfx('click'); show('history'); };
 $('games').addEventListener('click', e => {
   const b = e.target.closest('[data-game]'); if (!b) return; sfx('click');
   GAME = b.dataset.game; store.set('game', GAME); show('gamehome');
@@ -322,7 +462,7 @@ function renderCards() {
     const micOn = lp ? lp.mic : false;
     const away = lp && (!lp.connected || lp.left);
     return `<div data-pid="${p.id}" class="gcard ${s.turn === p.color && !s.over ? 'turn' : ''} ${away ? 'away' : ''}" style="${s.turn === p.color ? '' : ''}">
-      ${avatar(p.look, p.color, speaking ? 'speak' : '')}
+      ${avatar(p.look, p.color, speaking ? 'speak' : '', p.id)}
       <div class="info"><span class="nm">${esc(p.name)}${p.id === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       ${G.mode === 'online' ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
     </div>`;
@@ -369,8 +509,8 @@ function armTimer() {
 let lastTick = 0;
 setInterval(() => {
   checkBoards();
-  if (G && current === 'chess' && G.s) { chessTick(); return; }
-  if (G && current === 'carrom' && G.s) { carromTick(); return; }
+  if (G && current === 'chess' && G.s) { chessTick(); ringSync('chess', 'cFill'); return; }
+  if (G && current === 'carrom' && G.s) { carromTick(); ringSync('carrom', 'rFill'); return; }
   if (!G || current !== 'game' || !G.s) { $('tfill').style.width = '0'; return; }
   if (G.busy && board && !board.tweens.length && !diceSpin) { G.stuck = (G.stuck || 0) + 250; if (G.stuck > 6000) { G.busy = false; G.stuck = 0; } } else G.stuck = 0;
   refreshDice();
@@ -385,7 +525,16 @@ setInterval(() => {
     if (mine && sec <= 5 && sec > 0 && sec !== lastTick) { lastTick = sec; sfx('tick'); }
   }
   if (G.mode !== 'online' && G.turnEnds && left <= 0 && !G.busy) timeUp();
+  ringSync('game', 'tfill');
 }, 250);
+// The gold ring around the playing person's medallion shows the time left (same as the bar).
+function ringSync(screen, fillId) {
+  const av = document.querySelector(`#${screen} .gcard.turn .av`); if (!av) return;
+  const f = $(fillId), w = parseFloat(f.style.width);
+  const t = isNaN(w) || w <= 0 ? 1 : w / 100;
+  av.style.setProperty('--t', t.toFixed(3));
+  av.classList.toggle('low', f.classList.contains('low') && w > 0);
+}
 function timeUp() {
   const s = G.s; G.turnEnds = null;
   board.clearHighlight();
@@ -565,6 +714,12 @@ function finishGame() {
   $('winTitle').textContent = iWon ? 'You won!' : `${winner.name} won!`;
   $('winSub').textContent = iWon ? (s.game === 'snakes' ? 'You reached 100 first!' : 'All 4 of your players made it home') : (s.game === 'snakes' ? `${winner.name} reached 100 first` : 'Good game! Try again?');
   danceStage({ look: winner.look, tint: winner.color, name: winner.name }, ranks.slice(1).map(c => ({ look: P(c).look, tint: P(c).color })));
+  if (me) {
+    const rank = ranks.indexOf(me.color) + 1;
+    addHistory({ game: s.game === 'snakes' ? 'snakes' : 'ludo', mode: G.mode, result: rank === 1 ? 'won' : 'lost', rank, of: ranks.length,
+      score: s.game === 'snakes' ? (rank === 1 ? 'Reached 100' : `Square ${s.pos[me.color] || 0}`) : `${s.tokens[me.color].filter(x => x === FINISH).length}/4 home`,
+      opp: s.players.filter(p => p.id !== pid).map(p => ({ name: p.name, look: p.look, tint: p.color })) });
+  }
   $('winRest').innerHTML = `<div class="rankchips">${ranks.slice(1).map((c, i) => `<span class="rankchip"><b>${i + 2}</b>${esc(P(c).name)}</span>`).join('')}</div>`;
   const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
   $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
@@ -693,7 +848,7 @@ function renderChessCards() {
     const micOn = lp ? lp.mic : false;
     const tint = p.tint != null ? p.tint : (c === 'w' ? 2 : 3);
     return `<div data-pid="${p.id}" class="gcard ${s.turn === c && !s.over ? 'turn' : ''} ${lp && (!lp.connected || lp.left) ? 'away' : ''}">
-      ${avatar(p.look, tint, speaking ? 'speak' : '')}
+      ${avatar(p.look, tint, speaking ? 'speak' : '', p.id)}
       <div class="info"><span class="nm">${esc(p.name)}${p.id === pid && G.mode !== 'local' ? ' (You)' : ''}</span><span class="st"><span class="side" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${SIDE_DOT[c]};border:1.5px solid #fff;margin-right:4px"></span>${st}</span></div>
       <span class="clk ${ms < 30000 ? 'low' : ''}" data-clk="${c}">${fmtClock(ms)}</span>
       ${G.mode === 'online' && p.id !== pid ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
@@ -868,6 +1023,13 @@ function finishChess() {
   const s = G.s;
   const meColor = G.mode === 'online' ? (s.players.find(p => p.id === pid) || {}).color : (G.mode === 'bot' ? (s.players.find(p => p.kind === 'me') || {}).color : null);
   const res = chessResultText(s, meColor);
+  const meP = s.players.find(p => p.id === pid);
+  if (meP) {
+    const mc = G.mode === 'local' ? meP.color : meColor;
+    addHistory({ game: 'chess', mode: G.mode, result: !s.winner ? 'draw' : s.winner === mc ? 'won' : 'lost', of: 2,
+      score: s.reason === 'time' ? 'On time' : s.reason === 'left' ? 'Player left' : s.winner ? 'Checkmate' : 'Draw',
+      opp: s.players.filter(p => p.id !== pid).map(p => ({ name: p.name, look: p.look, tint: p.tint != null ? p.tint : (p.color === 'w' ? 2 : 3) })) });
+  }
   $('winTitle').textContent = res.title;
   $('winSub').textContent = res.sub;
   const W = s.winner ? [chessPlayer(s, s.winner)] : s.players;
@@ -966,7 +1128,7 @@ function placeCarromStriker() {
   rboard.bob = canShoot();
   // Slider: the knob follows the striker (mirrored when the board is turned around).
   const r = $('rSlider').getBoundingClientRect(), f = (sp.x - CLO) / (CHI - CLO);
-  const ff = carromViewSide() === 1 ? 1 - f : f;
+  const ff = rboard.flipped() ? 1 - f : f;
   $('rKnob').style.left = (24 + ff * Math.max(0, r.width - 48)) + 'px';
   $('rSlider').classList.toggle('off', !canShoot());
 }
@@ -984,7 +1146,7 @@ function renderCarromCards() {
     const q = s.queen && s.queen.by === i ? (s.queen.state === 'covered' ? '<i class="q"></i>' : '<i class="q" style="opacity:.45"></i>') : '';
     const micOn = lp ? lp.mic : false;
     return `<div data-pid="${p.id}" class="gcard ${s.turn === i && !s.over ? 'turn' : ''} ${lp && (!lp.connected || lp.left) ? 'away' : ''}">
-      ${avatar(p.look, p.tint != null ? p.tint : i ? 3 : 0, speaking ? 'speak' : '')}
+      ${avatar(p.look, p.tint != null ? p.tint : i ? 3 : 0, speaking ? 'speak' : '', p.id)}
       <div class="info"><span class="nm">${esc(p.name)}${p.id === pid && G.mode !== 'local' ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       <span class="coins"><i style="background:${CDOT[i]}"></i>${s.got[i]}/9${q}</span>
       ${G.mode === 'online' && p.id !== pid ? `<button class="mic ${micOn ? 'on' : ''}" data-deaf="${p.id}" aria-label="Mute ${esc(p.name)}">${micOn && !(G.voice && G.voice.deafened.has(p.id)) ? MIC : MIC_OFF}</button>` : ''}
@@ -1050,11 +1212,36 @@ function nextCarrom() {
   carromTick();
 }
 // Aim: slide the striker, then pull back on the board (like a catapult) and let go.
+// Camera: two fingers turn and zoom the board; one finger off the board (or when it's not
+// your shot) turns and tilts it. The "Reset view" button brings the normal view back.
 function hookCarromInput(b) {
   const c = b.canvas;
-  let down = null;
-  c.addEventListener('pointerdown', e => { if (!canShoot()) return; down = { x: e.clientX, y: e.clientY, aiming: false }; try { c.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } });
+  const ptr = new Map();
+  let down = null, cam = null;
+  const onBoard = p => p && p.x > -0.04 && p.x < 1.04 && p.y > -0.04 && p.y < 1.04;
+  const two = () => { const [p1, p2] = [...ptr.values()]; return { d: Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1, a: Math.atan2(p2.y - p1.y, p2.x - p1.x), my: (p1.y + p2.y) / 2 }; };
+  const cancelAim = () => { if (down && down.aiming && G) { G.aim = null; b.hideAim(); } down = null; };
+  c.addEventListener('pointerdown', e => {
+    ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { c.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ }
+    if (ptr.size >= 2) { cancelAim(); cam = Object.assign({ kind: 'two' }, two()); return; }
+    if (canShoot() && onBoard(b.boardPoint(e))) { down = { x: e.clientX, y: e.clientY, aiming: false }; cam = null; }
+    else { down = null; cam = { kind: 'one', x: e.clientX, y: e.clientY }; }
+  });
   c.addEventListener('pointermove', e => {
+    if (!ptr.has(e.pointerId)) return;
+    ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (cam && cam.kind === 'two' && ptr.size >= 2) {
+      const t = two();
+      let da = t.a - cam.a; da = Math.atan2(Math.sin(da), Math.cos(da));
+      b.orbit(-da, (t.my - cam.my) * 0.004);
+      b.pinch(t.d / cam.d);
+      Object.assign(cam, t); placeCarromStriker(); showResetView(); return;
+    }
+    if (cam && cam.kind === 'one') {
+      b.orbit(-(e.clientX - cam.x) * 0.008, (e.clientY - cam.y) * 0.005);
+      cam.x = e.clientX; cam.y = e.clientY; placeCarromStriker(); showResetView(); return;
+    }
     if (!down) return;
     if (!down.aiming && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) down.aiming = true;
     if (!down.aiming || !canShoot()) return;
@@ -1066,19 +1253,27 @@ function hookCarromInput(b) {
     b.showAim(G.s.coins, sp.x, sp.y, dx, dy, G.aim.power, settings.carromHelp);
     G.note = { text: `Power ${Math.round(G.aim.power * 100)}% · let go to shoot`, until: Date.now() + 400 }; $('rTurn').textContent = G.note.text;
   });
-  const up = () => {
+  const up = e => {
+    ptr.delete(e.pointerId);
+    if (ptr.size === 1 && cam && cam.kind === 'two') { const [p] = [...ptr.values()]; cam = { kind: 'one', x: p.x, y: p.y }; return; }
+    if (ptr.size) return;
+    cam = null;
     if (!down) return; const was = down; down = null;
     if (!was.aiming) return;
     const a = G && G.aim; if (G) G.aim = null;
     if (a && a.power > 0.06 && canShoot()) shootCarrom(a); else b.hideAim();
   };
-  c.addEventListener('pointerup', up); c.addEventListener('pointercancel', () => { down = null; if (G) G.aim = null; b.hideAim(); });
+  c.addEventListener('pointerup', up);
+  c.addEventListener('pointercancel', e => { ptr.delete(e.pointerId); cam = null; down = null; if (G) G.aim = null; b.hideAim(); });
+  c.addEventListener('wheel', e => { e.preventDefault(); b.pinch(1 - e.deltaY * 0.001); showResetView(); }, { passive: false });
 }
+function showResetView() { $('rReset').classList.toggle('show', !!(rboard && rboard.moved())); }
+$('rReset').onclick = () => { sfx('click'); if (rboard) rboard.resetView(); $('rReset').classList.remove('show'); setTimeout(placeCarromStriker, 400); };
 function slideCarrom(e) {
   if (!canShoot()) return;
   const r = $('rSlider').getBoundingClientRect();
   let f = Math.min(1, Math.max(0, (e.clientX - r.left - 24) / Math.max(1, r.width - 48)));
-  if (carromViewSide() === 1) f = 1 - f;
+  if (rboard && rboard.flipped()) f = 1 - f;
   G.sx = CLO + f * (CHI - CLO); G.aim = null; rboard.hideAim(); placeCarromStriker();
 }
 $('rSlider').addEventListener('pointerdown', e => { try { $('rSlider').setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } $('rSlider')._d = true; slideCarrom(e); });
@@ -1112,7 +1307,7 @@ function carromAfter(res, P) {
   const name = n => n.id === pid && G.mode !== 'local' ? 'You' : n.name;
   const shooter = P;
   if (res.foul) { toast(`Foul! ${res.msg ? '' : ''}Striker went in, a coin comes back`, '#E0103A'); buzz([120, 60, 120]); }
-  else if (res.queen === 'pocketed') toast(`Queen! Now pocket your coin to cover her`, '#D9142E');
+  else if (res.queen === 'pocketed') { toast(`Queen! Now pocket your coin to cover her`, '#D9142E'); if (settings.queenBuzz) buzz([400, 100, 400], true); }
   else if (res.queen === 'covered') { toast(`${name(shooter)} covered the Queen!`, '#00A844'); sfx('win'); }
   else if (res.queen === 'returned') toast('Queen not covered: back to the centre', '#3A2490');
   else if (res.msg) toast(res.msg, '#3A2490');
@@ -1162,6 +1357,9 @@ function finishCarrom() {
   const s = G.s, W = s.players[s.winner];
   const meI = G.mode === 'local' ? -1 : s.players.findIndex(p => p.id === pid || (G.mode === 'bot' && p.kind === 'me'));
   const iWon = meI === s.winner;
+  const mi = s.players.findIndex(p => p.id === pid);
+  if (mi >= 0) addHistory({ game: 'carrom', mode: G.mode, result: s.winner === mi ? 'won' : 'lost', of: 2, score: `${s.got[mi]}–${s.got[1 - mi]}`,
+    opp: s.players.filter(p => p.id !== pid).map(p => ({ name: p.name, look: p.look, tint: p.tint != null ? p.tint : 3 })) });
   $('winTitle').textContent = iWon ? 'You won!' : `${W.name} won!`;
   $('winSub').textContent = s.reason === 'left' ? 'The other player left the game' : `${iWon ? 'You' : W.name} pocketed all 9 coins first (${s.got[0]} - ${s.got[1]})`;
   const Lo = s.players[1 - s.winner];
@@ -1252,12 +1450,14 @@ function openRoom(code) {
       if (m.t === 'sync') { board && board.clearHighlight(); stopDiceSpin(); g.q = Promise.resolve(); }
       g.q = g.q.then(() => onNet(m)).catch(err => console.error(err));
     },
-    status: st => { if (st !== 'online' && G) G.wasOffline = true; setNetState(st); }
+    status: st => { if (st !== 'online' && G) G.wasOffline = true; setNetState(st); if (st === 'online') setTimeout(sendMyPhoto, 50); }
   });
   G.voice = new Voice((to, data) => G && G.net && G.net.send({ t: 'rtc', to, data }), (who, on) => { if (!G) return; if (on) G.speaking.add(who); else G.speaking.delete(who); if (current === 'lobby') renderLobby(); else renderCards(); });
   G.voice.setListen(settings.listen);
+  G.voice.setVoiceVolume(vol.voice / 100); G.voice.setMicVolume(vol.mic / 50);
   G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (['game', 'chess', 'carrom'].includes(current)) renderCards(); };
   G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME });
+  roomPhotos.clear();
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
   loadIce(Net.serverBase()).then(() => G && G.voice ? G.voice.start(pid, settings.automic) : false).then(ok => {
@@ -1284,6 +1484,7 @@ function endOnline() {
   store.set('room', null);
   if (G.net) G.net.close();
   if (G.voice) G.voice.stop();
+  roomPhotos.clear();
   $('netBanner').classList.remove('show');
   G.net = null;
 }
@@ -1313,12 +1514,12 @@ function renderLobby() {
     const sp = G.speaking.has(p.pid);
     let st = !p.connected ? 'Waiting for network...' : sp ? 'Speaking...' : p.host ? 'Host' : 'Ready';
     if (p.pid !== pid && p.connected) st += ' \u00b7 ' + voiceText(p.pid);
-    return `<div class="pcard" style="border-color:${p.pid === pid ? UI[c] : ''}">${avatar(p.look, c, sp ? 'speak' : '')}
+    return `<div class="pcard">${avatar(p.look, c, sp ? 'speak' : '', p.pid)}
       <div class="col grow"><span class="nm">${esc(p.name)}${p.pid === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
       <span class="mic ${p.mic ? 'on' : ''}">${p.mic ? MIC : MIC_OFF}</span></div>`;
   });
   $('voiceInfo').textContent = !G.voice.hasMic() ? 'Your mic is not allowed. Others can\u2019t hear you.' : (VoiceMod.RELAY ? 'Voice relay: on' : 'Voice relay: off (voice may fail on mobile data)');
-  for (let i = L.length; i < max; i++) rows.push(`<div class="pcard"><div class="av" style="background:#2E1A75;border-color:#3A2490"></div><div class="col grow"><span class="nm">Empty slot</span><span class="st">Waiting for a friend...</span></div></div>`);
+  for (let i = L.length; i < max; i++) rows.push(`<div class="pcard"><div class="av" style="opacity:.4"><div class="in" style="background:#2E1A75"></div></div><div class="col grow"><span class="nm">Empty slot</span><span class="st">Waiting for a friend...</span></div></div>`);
   $('lobbyPlayers').innerHTML = rows.join('');
   const btn = $('lobbyStart');
   if (G.host) { btn.textContent = 'Start game'; btn.disabled = L.filter(p => p.connected).length < 2; }
@@ -1430,6 +1631,10 @@ async function onNet(m) {
     case 'cmoved': await onChessMoved(m); break;
     case 'cend': onChessEnd(m); break;
     case 'chat': onChat(m); break;
+    case 'photo':
+      if (m.img) roomPhotos.set(m.pid, m.img); else roomPhotos.delete(m.pid);
+      if (current === 'lobby') renderLobby(); else if (['game', 'chess', 'carrom'].includes(current)) renderCards();
+      break;
     case 'chatlog': G.chat = m.list || []; if ($('chat').classList.contains('show')) renderChat(); break;
     case 'rtc': await G.voice.signal(m.from, m.data); break;
     case 'lobbyAgain':
@@ -1498,26 +1703,75 @@ function sayBubble(m) {
   $('bubbles').appendChild(el); setTimeout(() => el.remove(), 3300);
 }
 
-// ---------- Settings ----------
-const SET_ROWS = [
-  ['sound', 'Sound', 'Dice, jump and capture sounds'],
-  ['music', 'Music', 'Background music'],
-  ['vibrate', 'Vibration', 'Phone vibrates on a capture'],
-  ['automic', 'Auto mic on', 'Mic turns on when you join a room'],
-  ['listen', 'Voice chat', 'Hear other players during the game']
+// ---------- Settings: sound & vibration ----------
+const VOL_ROWS = [
+  ['master', '🔊', 'Master volume', 'All sounds in the app'],
+  ['music', '🎵', 'Menu music', 'Music on the home screens'],
+  ['sfx', '🎲', 'Game sounds', 'Dice, moves, coins, clicks'],
+  ['win', '🥁', 'Win music', 'Bhangra dhol when someone wins'],
+  ['voice', '🗣️', 'Friends’ voice', 'Voice chat in online rooms'],
+  ['mic', '🎙️', 'My mic', 'How loud others hear you'],
+  ['vib', '📳', 'Vibration strength', 'Captures, fouls and wins']
 ];
+const SET_ROWS = [
+  ['queenBuzz', '👑', 'Strong buzz for the Queen', 'Phone vibrates hard when the Queen goes in'],
+  ['automic', '🎤', 'Auto mic on', 'Mic turns on when you join a room'],
+  ['listen', '🎧', 'Voice chat', 'Hear other players during the game']
+];
+function pct(k) { return k === 'mic' ? Math.round(vol.mic * 2) : vol[k]; }
+function renderVol() {
+  $('setVol').innerHTML = `<div class="ptitle">Volume</div>` + VOL_ROWS.map(r => `<div class="vrow"><div class="vic">${r[1]}</div><div class="grow minw0"><div class="t">${r[2]}</div><div class="s">${r[3]}</div>
+    <div class="gslider ${vol[r[0]] ? '' : 'zero'}" data-v="${r[0]}" role="slider" aria-label="${r[2]}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${vol[r[0]]}" tabindex="0"><i style="width:${vol[r[0]]}%"></i><b style="left:${vol[r[0]]}%"></b></div></div>
+    <div class="vpct" data-p="${r[0]}">${pct(r[0])}%</div></div>`).join('');
+}
 function openSettings() {
-  $('setRows').innerHTML = SET_ROWS.map(r => `<label class="setrow"><div class="col grow"><span class="t">${r[1]}</span><span class="s">${r[2]}</span></div><span class="switch"><input type="checkbox" data-k="${r[0]}" ${settings[r[0]] ? 'checked' : ''}><span></span></span></label>`).join('');
+  renderVol();
+  $('setRows').innerHTML = `<div class="ptitle">Vibration and voice</div>` + SET_ROWS.map(r => `<label class="setrow"><div class="vic">${r[1]}</div><div class="col grow"><span class="t">${r[2]}</span><span class="s">${r[3]}</span></div><span class="switch"><input type="checkbox" data-k="${r[0]}" ${settings[r[0]] ? 'checked' : ''}><span></span></span></label>`).join('');
   $('ver').textContent = (window.LD_CONFIG && window.LD_CONFIG.version) || '1.0';
   show('settings');
 }
+// Turn the volume numbers into the sound engine, voice chat and on/off switches.
+function applyVol() {
+  prefs.vol = vol; applyVolumes();
+  if (G && G.voice) { G.voice.setVoiceVolume(vol.voice / 100); G.voice.setMicVolume(vol.mic / 50); }
+}
+let volSave = null;
+function setVol(k, v, el) {
+  v = Math.round(Math.max(0, Math.min(100, v)));
+  if (vol[k] === v) return;
+  vol[k] = v;
+  el.querySelector('i').style.width = v + '%'; el.querySelector('b').style.left = v + '%'; el.classList.toggle('zero', !v); el.setAttribute('aria-valuenow', v);
+  const p = document.querySelector(`[data-p="${k}"]`); if (p) p.textContent = pct(k) + '%';
+  if (k === 'music') { const on = v > 0; if (on !== settings.music) { settings.music = on; prefs.music = on; music(on); } }
+  if (k === 'sfx' && (v > 0) !== settings.sound) { settings.sound = v > 0; prefs.sound = settings.sound; }
+  if (k === 'vib') { settings.vibrate = v > 0; prefs.vibrate = settings.vibrate; }
+  applyVol(); syncSpeaker();
+  clearTimeout(volSave); volSave = setTimeout(() => { store.set('vol', vol); store.set('settings', settings); }, 250);
+}
+let volDrag = null;
+$('setVol').addEventListener('pointerdown', e => {
+  const el = e.target.closest('.gslider'); if (!el) return;
+  e.preventDefault(); volDrag = el; try { el.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ }
+  unlock(); const r = el.getBoundingClientRect(); setVol(el.dataset.v, (e.clientX - r.left) / r.width * 100, el);
+});
+$('setVol').addEventListener('pointermove', e => { if (!volDrag) return; const r = volDrag.getBoundingClientRect(); setVol(volDrag.dataset.v, (e.clientX - r.left) / r.width * 100, volDrag); });
+const volEnd = () => {
+  if (!volDrag) return; const k = volDrag.dataset.v; volDrag = null;
+  if (k === 'vib') buzz([120]);
+  else if (k === 'sfx' || k === 'master') sfx('turn');
+  else if (k === 'win') { playTrack('sound/bhangra.m4a'); clearTimeout(volEnd.t); volEnd.t = setTimeout(stopTrack, 2200); }
+};
+$('setVol').addEventListener('pointerup', volEnd); $('setVol').addEventListener('pointercancel', volEnd);
+$('setVol').addEventListener('keydown', e => {
+  const el = e.target.closest('.gslider'); if (!el) return;
+  const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 5 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -5 : 0;
+  if (d) { e.preventDefault(); setVol(el.dataset.v, vol[el.dataset.v] + d, el); }
+});
 $('setRows').addEventListener('change', e => {
   const k = e.target.dataset.k; if (!k) return;
   settings[k] = e.target.checked; store.set('settings', settings);
-  Object.assign(prefs, { sound: settings.sound, music: settings.music, vibrate: settings.vibrate });
-  if (k === 'music') music(settings.music);
-  syncSpeaker();
   if (k === 'listen' && G && G.voice) G.voice.setListen(settings.listen);
+  if (k === 'queenBuzz' && settings.queenBuzz) buzz([400, 100, 400], true);
   sfx('click');
 });
 $('setBack').onclick = () => show('home');

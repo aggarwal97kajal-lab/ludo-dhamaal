@@ -15,7 +15,7 @@ export class Carrom3D {
     this.R.shadowMap.enabled = true; this.R.shadowMap.type = T.PCFSoftShadowMap;
     this.S = new T.Scene(); this.S.background = new T.Color('#120a33');
     this.cam = new T.PerspectiveCamera(40, 1, 0.5, 100);
-    this.side = 0; this.th = 0; this.thTarget = null; this.tweens = []; this.paused = true; this.time = 0;
+    this.side = 0; this.th = 0; this.thTarget = null; this.ph = 0.58; this.zoom = 1; this.camGoal = null; this.tweens = []; this.paused = true; this.time = 0;
     this.meshes = {}; this.anim = null;
     this.build(); this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -113,7 +113,7 @@ export class Carrom3D {
     this.cam.updateProjectionMatrix(); this.updCam();
   }
   updCam() {
-    const ph = 0.58, r = this.rad;
+    const ph = this.ph, r = this.rad * this.zoom;
     this.cam.position.set(r * Math.sin(ph) * Math.sin(this.th), r * Math.cos(ph), r * Math.sin(ph) * Math.cos(this.th));
     this.cam.lookAt(Math.sin(this.th) * 0.9, 0, Math.cos(this.th) * 0.9);
     const fz = -Math.cos(this.th) * (W / 2 + 1.4), fx = -Math.sin(this.th) * (W / 2 + 1.4);
@@ -125,6 +125,24 @@ export class Carrom3D {
     if (!smooth) { this.th = t; this.thTarget = null; this.updCam(); return; }
     let d = t - this.th; d = Math.atan2(Math.sin(d), Math.cos(d)); this.thTarget = this.th + d;
   }
+  // ---- Free camera (360°): turn, tilt and zoom with fingers ----
+  // Turn by a (radians) and tilt by b (radians).
+  orbit(a, b) {
+    this.thTarget = null; this.camGoal = null;
+    this.th += a;
+    this.ph = Math.min(1.12, Math.max(0.12, this.ph + b));
+    this.updCam();
+  }
+  pinch(k) { this.camGoal = null; this.zoom = Math.min(1.45, Math.max(0.55, this.zoom / k)); this.updCam(); }
+  // Back to the normal view of your side.
+  resetView() {
+    const t = this.side ? Math.PI : 0;
+    let d = t - this.th; d = Math.atan2(Math.sin(d), Math.cos(d));
+    this.thTarget = this.th + d; this.camGoal = { ph: 0.58, zoom: 1 };
+  }
+  // Is the camera looking from the other side (so left and right are swapped on screen)?
+  flipped() { return Math.cos(this.thTarget != null ? this.thTarget : this.th) < 0; }
+  moved() { return Math.abs(Math.atan2(Math.sin(this.th - (this.side ? Math.PI : 0)), Math.cos(this.th - (this.side ? Math.PI : 0)))) > 0.05 || Math.abs(this.ph - 0.58) > 0.03 || Math.abs(this.zoom - 1) > 0.03; }
 
   // Show the coins where the game says they are.
   setCoins(coins) {
@@ -137,7 +155,8 @@ export class Carrom3D {
     });
     Object.keys(this.meshes).forEach(k => { if (!seen[k]) { this.S.remove(this.meshes[k]); delete this.meshes[k]; } });
   }
-  setStriker(x, y, show) { this.striker.visible = show !== false; this.striker.position.set(wx(x), 0.1, wz(y)); this.strikerAt = { x, y }; }
+  // The striker shrinks while it falls into a pocket (foul); always bring it back to full size.
+  setStriker(x, y, show) { this.striker.visible = show !== false; this.striker.scale.setScalar(1); this.striker.position.set(wx(x), 0.1, wz(y)); this.strikerAt = { x, y }; }
 
   hideAim() { [this.aimArrow, this.coinArrow, this.pathLine, this.coinLine, this.ghost, this.targetRing].forEach(m => { m.visible = false; }); }
   // Arrow on the striker, and (with help) where the first coin it hits will go.
@@ -185,6 +204,12 @@ export class Carrom3D {
     this.time += dt;
     if (this.anim) this.stepAnim(dt);
     if (this.thTarget != null) { const d = this.thTarget - this.th; if (Math.abs(d) < 0.01) { this.th = this.thTarget; this.thTarget = null; } else this.th += d * Math.min(1, dt * 4); this.updCam(); }
+    if (this.camGoal) {
+      const g = this.camGoal, k = Math.min(1, dt * 5);
+      this.ph += (g.ph - this.ph) * k; this.zoom += (g.zoom - this.zoom) * k;
+      if (Math.abs(g.ph - this.ph) < 0.003 && Math.abs(g.zoom - this.zoom) < 0.003) { this.ph = g.ph; this.zoom = g.zoom; this.camGoal = null; }
+      this.updCam();
+    }
     if (this.targetRing.visible) this.targetRing.scale.setScalar(1 + Math.sin(this.time * 7) * 0.08);
     if (this.bob && !this.anim && this.striker.visible && !this.aimArrow.visible) this.striker.position.y = 0.1 + Math.abs(Math.sin(this.time * 4)) * 0.08;
   }

@@ -17,7 +17,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom'], v: 6 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom'], v: 7 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/.well-known/assetlinks.json') return json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: PKG, sha256_cert_fingerprints: CERTS } }]);
     const link = url.pathname.match(/^\/r\/([A-Za-z0-9]{5})\/?$/);
@@ -78,6 +78,8 @@ export class Room {
     this.chat = [];
     this.game = 'ludo';
     this.turnStart = 0;
+    // Profile photos: kept only in memory while the room is open, never saved.
+    this.photos = new Map();    // pid -> data:image/jpeg;base64,...
     // The room is saved, so a server restart (for example after an update) does not lose the game.
     if (state && state.storage && state.blockConcurrencyWhile) state.blockConcurrencyWhile(() => this.restore());
   }
@@ -158,6 +160,15 @@ export class Room {
       }
       case 'rtc': { const to = this.wsOf(m.to); if (to && m.data && JSON.stringify(m.data).length < 20000) this.send(to, { t: 'rtc', from: me, data: m.data }); break; }
       case 'again': if (me === this.host && this.s && this.s.over) { this.s = null; this.clearTurn(); this.players = this.players.filter(x => x.connected); this.all({ t: 'lobbyAgain' }); this.lobby(); } break;
+      case 'photo': {
+        const img = typeof m.img === 'string' ? m.img : '';
+        if (img && !(img.startsWith('data:image/jpeg;base64,') || img.startsWith('data:image/webp;base64,')) ) break;
+        if (img.length > 60000) break;
+        if (img) this.photos.set(me, img); else this.photos.delete(me);
+        const t = JSON.stringify({ t: 'photo', pid: me, img });
+        for (const [w, who] of this.sockets) if (who !== me) { try { w.send(t); } catch (e) { /* closed */ } }
+        break;
+      }
       case 'leave': this.leave(ws, me); break;
     }
   }
@@ -185,6 +196,7 @@ export class Room {
     if (this.emptyTimer) { clearTimeout(this.emptyTimer); this.emptyTimer = null; }
     this.lobby();
     this.send(ws, { t: 'chatlog', list: this.chat });
+    for (const [who, img] of this.photos) if (who !== pid) this.send(ws, { t: 'photo', pid: who, img });
     if (this.s && this.s.game === 'chess') this.send(ws, { t: 'sync', s: this.s, left: this.chessLeftMs() });
     else if (this.s && this.s.game === 'carrom') this.send(ws, { t: 'sync', s: this.s, turnEnds: this.turnEnds });
     else if (this.s) this.send(ws, { t: 'sync', s: this.s, moves: this.s.rolled ? this.moves : [], turnEnds: this.turnEnds });
@@ -192,6 +204,7 @@ export class Room {
 
   leave(ws, pid) {
     this.sockets.delete(ws);
+    this.photos.delete(pid);
     if (!this.s) this.players = this.players.filter(x => x.pid !== pid);
     else {
       const p = this.players.find(x => x.pid === pid);

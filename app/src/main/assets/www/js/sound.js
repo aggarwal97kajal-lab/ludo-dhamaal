@@ -1,19 +1,33 @@
 // Small sound effects made in code (no audio files) + light background music.
-let ctx = null, musicTimer = null, master = null;
-export const prefs = { sound: true, music: true, vibrate: true };
+let ctx = null, musicTimer = null, master = null, sfxBus = null, musicBus = null, winBus = null;
+// Volumes are 0-100. vib scales how long the phone buzzes.
+export const prefs = { sound: true, music: true, vibrate: true, vol: { master: 80, music: 60, sfx: 80, win: 90, vib: 70 } };
+const v = k => Math.max(0, Math.min(100, prefs.vol[k] == null ? 80 : prefs.vol[k])) / 100;
+// Call after changing prefs.vol so playing sounds change at once.
+export function applyVolumes() {
+  if (!ctx) return;
+  master.gain.value = 0.75 * v('master');
+  sfxBus.gain.value = v('sfx');
+  musicBus.gain.value = v('music');
+  winBus.gain.value = v('win');
+}
 
 function ac() {
   if (!ctx) {
     const C = window.AudioContext || window.webkitAudioContext;
     if (!C) return null;
     ctx = new C();
-    master = ctx.createGain(); master.gain.value = 0.6; master.connect(ctx.destination);
+    master = ctx.createGain(); master.connect(ctx.destination);
+    sfxBus = ctx.createGain(); sfxBus.connect(master);
+    musicBus = ctx.createGain(); musicBus.connect(master);
+    winBus = ctx.createGain(); winBus.connect(master);
+    applyVolumes();
   }
   if (ctx.state === 'suspended') ctx.resume();
   return ctx;
 }
 
-function tone(freq, start, dur, type, vol, slideTo) {
+function tone(freq, start, dur, type, vol, slideTo, bus) {
   const c = ac(); if (!c) return;
   const o = c.createOscillator(), g = c.createGain();
   o.type = type || 'sine'; o.frequency.setValueAtTime(freq, c.currentTime + start);
@@ -21,7 +35,7 @@ function tone(freq, start, dur, type, vol, slideTo) {
   g.gain.setValueAtTime(0.0001, c.currentTime + start);
   g.gain.exponentialRampToValueAtTime(vol || 0.2, c.currentTime + start + 0.01);
   g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + start + dur);
-  o.connect(g); g.connect(master); o.start(c.currentTime + start); o.stop(c.currentTime + start + dur + 0.05);
+  o.connect(g); g.connect(bus || sfxBus); o.start(c.currentTime + start); o.stop(c.currentTime + start + dur + 0.05);
 }
 
 function noise(start, dur, vol) {
@@ -30,7 +44,7 @@ function noise(start, dur, vol) {
   for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
   const s = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter();
   f.type = 'bandpass'; f.frequency.value = 1800; s.buffer = b; g.gain.value = vol || 0.3;
-  s.connect(f); f.connect(g); g.connect(master); s.start(c.currentTime + start);
+  s.connect(f); f.connect(g); g.connect(sfxBus); s.start(c.currentTime + start);
 }
 
 export function sfx(name) {
@@ -49,8 +63,14 @@ export function sfx(name) {
   }
 }
 
-export function buzz(p) {
-  if (prefs.vibrate && navigator.vibrate) { try { navigator.vibrate(p); } catch (e) { /* ignore */ } }
+// Buzz pattern [on, off, on, ...] in ms. The strength slider makes the "on" parts longer or shorter
+// (phones can't change how hard they vibrate, only for how long).
+export function buzz(p, full) {
+  if (!prefs.vibrate || !navigator.vibrate) return;
+  const k = full ? 1 : v('vib') * 1.4;
+  if (k <= 0.02) return;
+  const q = (Array.isArray(p) ? p : [p]).map((x, i) => i % 2 ? x : Math.max(10, Math.round(x * k)));
+  try { navigator.vibrate(q); } catch (e) { /* ignore */ }
 }
 
 const SCALE = [262, 294, 330, 392, 440, 523, 587, 659];
@@ -61,8 +81,8 @@ export function music(on) {
   musicTimer = setInterval(() => {
     if (!ctx || ctx.state !== 'running') return;
     const n = SCALE[[0, 2, 4, 5, 4, 2, 3, 1][i % 8] + (i % 16 >= 8 ? 1 : 0)];
-    tone(n, 0, 0.35, 'triangle', 0.035);
-    if (i % 4 === 0) tone(n / 2, 0, 0.6, 'sine', 0.04);
+    tone(n, 0, 0.35, 'triangle', 0.05, null, musicBus);
+    if (i % 4 === 0) tone(n / 2, 0, 0.6, 'sine', 0.06, null, musicBus);
     i++;
   }, 380);
 }
@@ -83,7 +103,7 @@ export async function playTrack(url) {
     if (track !== my) return;
     const s = c.createBufferSource(), g = c.createGain();
     s.buffer = buffers[url]; g.gain.value = 0.9;
-    s.connect(g); g.connect(c.destination);
+    s.connect(g); g.connect(winBus);
     my.start = c.currentTime + 0.05; my.src = s; s.start(my.start);
   } catch (e) { /* no music, the dance still plays */ }
 }
