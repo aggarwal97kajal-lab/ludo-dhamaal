@@ -10,6 +10,7 @@ import { Carrom3D } from './carrom3d.js';
 import { newCarrom, applyShot, carromBot, carromPass, strikerSpot, forwardOk, NEED as CNEED, BASE as CBASE, LO as CLO, HI as CHI } from './carrom.js';
 import { newSnakes, snakeRoll, snakePass, GOAL } from './snakes.js';
 import { Chess } from './chesslib.js';
+import { makePuzzle, dailySeed, peers as sdPeers, LEVELS as SD_LEVELS, LEVEL_NAME as SD_NAME, MAX_MISTAKES as SD_MAX } from './sudoku.js';
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaBot, playable as pattaPlayable, canPlay as pattaCanPlay, top as pattaTop, label as pattaLabel, ranking as pattaRanking, COLORS as PCOLORS } from './patta.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
 
@@ -28,7 +29,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('ld:' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 };
 let profile = store.get('profile', null);
-const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', carrom3d: false, striker: 0 }, store.get('settings', {}));
+const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', carrom3d: false, striker: 0, sdLevel: 'medium' }, store.get('settings', {}));
 // Volumes 0-100 (mic: 50 = normal, 100 = twice as loud).
 const vol = Object.assign({ master: 80, music: 60, sfx: 80, win: 90, voice: 100, mic: 50, vib: 70 }, store.get('vol', {}));
 prefs.vol = vol;
@@ -239,7 +240,7 @@ function stats(list) {
   const best = Object.keys(by).sort((x, y) => by[y] - by[x])[0] || null;
   return { played: L.length, won, lost, rate: L.length ? Math.round(won / L.length * 100) : 0, streak, best };
 }
-const GAME_ICON = { ludo: '🎲', chess: '&#9822;', carrom: '🎯', snakes: '🐍' };
+const GAME_ICON = { ludo: '🎲', chess: '&#9822;', carrom: '🎯', snakes: '🐍', patta: '🃏', sudoku: '🔢', arrows: '➹', draw: '✏️' };
 function statsHtml(st, profileView) {
   const four = profileView
     ? [['gold', st.played, 'Played'], ['green', st.won, 'Won'], ['', st.rate + '%', 'Win rate'], ['', (st.streak ? '🔥' : '') + st.streak, 'Streak']]
@@ -257,7 +258,7 @@ const MODE_TEXT = { online: 'online', bot: 'vs computer', local: 'pass & play' }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)]);
 function renderHistory() {
   $('hStats').innerHTML = statsHtml(stats(), false);
-  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
+  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'Rang Patta'], ['sudoku', 'Sudoku']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
   const L = history.filter(h => hFilter === 'all' || h.game === hFilter);
   if (!L.length) { $('hList').innerHTML = `<div class="panel hempty"><b>No games yet</b>Play a game and it will show up here.</div>`; return; }
   const groups = [];
@@ -277,9 +278,9 @@ $('hFilters').addEventListener('click', e => { const b = e.target.closest('[data
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
-const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta' };
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'Rang Patta', sudoku: 'Sudoku' };
 // Screens where a game is being played (music off, back button asks to leave, chat bubbles).
-const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta'];
+const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku'];
 const ARCH = '<svg class="frame" viewBox="0 0 176 228" preserveAspectRatio="none"><use href="#archOuter" fill="none" stroke="url(#g)" stroke-width="7"/><use href="#archInner" fill="none" stroke="#ffe17a" stroke-width="1.2" opacity=".8"/><circle cx="88" cy="7" r="5" fill="GEM" stroke="#ffe17a" stroke-width="2"/></svg>';
 function renderHome() {
   $('homeAv').innerHTML = myPhoto ? `<div class="in photo" style="background:${UI[profile.color]}"><img src="${myPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
@@ -304,7 +305,8 @@ function renderHome() {
     arch('carrom', '#e5196f', '2', `<div class="cboard3">${pk('left:1px;top:1px', '#120a06')}${pk('right:1px;top:1px', '#120a06')}${pk('left:1px;bottom:1px', '#120a06')}${pk('right:1px;bottom:1px', '#120a06')}${pk('left:28px;top:28px', '#d9142e')}${pk('left:15px;top:30px', '#f6efdc')}${pk('left:41px;top:25px', '#1f1f1f')}<i style="left:30px;top:44px;width:15px;height:15px;background:#eef;border:2px solid #3d5afe"></i></div>`, 'Carrom', '3 ways to play') +
     arch('snakes', '#0fb5a5', '2-4', body(2, 2, 104), 'Snakes &amp; Ladders', 'First to 100', 'long') +
     arch('patta', '#0fb5a5', '2-4', `<div class="minicards">${mc(0, 7, -16)}${mc(3, 'rev', -2)}${mc(2, 'd2', 14)}</div>`, 'Rang Patta', 'Colour &amp; number', '', true) +
-    arch('soon', '#ffd34d', '', '<div style="font-size:40px;margin-bottom:22px">✨</div>', 'Coming soon', 'Sudoku, Arrows, Draw', 'long', false, true);
+    arch('sudoku', '#e5196f', '1-4', `<div class="minisd">${[5, '', 3, '', 8, '', 7, '', 1].map((n, i) => `<i class="${i === 4 ? 'on' : ''}">${n}</i>`).join('')}</div>`, 'Sudoku', 'Daily puzzle', '', true) +
+    arch('soon', '#ffd34d', '', '<div style="font-size:40px;margin-bottom:22px">✨</div>', 'Coming soon', 'Arrows, Draw &amp; Guess', 'long', false, true);
   music(true);
 }
 $('homeAv').onclick = () => { sfx('click'); openProfile(); };
@@ -316,7 +318,7 @@ $('games').addEventListener('click', e => {
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">Rang</div><div class="l2">Patta</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = GAME === 'carrom' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
@@ -337,6 +339,7 @@ function renderModes() {
   const list = modes.map(m => `<button class="mode ${GAME === 'carrom' ? 'sm' : ''}" data-mode="${m[0]}" style="background:${UI[m[3]]};border-color:${UI_EDGE[m[3]]};color:${UI_FG[m[3]]}">
     <div class="col grow"><span class="t">${m[1]}</span><span class="s">${m[2]}</span></div>
     <div class="ppl">${typeof m[4] === 'string' ? m[4] : m[4].map(i => body(i, i, GAME === 'carrom' ? 58 : 82)).join('')}</div></button>`).join('');
+  if (GAME === 'sudoku') { $('modes').innerHTML = sudokuModesHtml(); music(true); return; }
   $('modes').innerHTML = GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : list;
   music(true);
 }
@@ -363,6 +366,8 @@ function carromPic(mode) {
   return s + '<circle cx="60" cy="96" r="7" fill="#eef" stroke="#3d5afe" stroke-width="2.5"/>';
 }
 $('modes').addEventListener('click', e => {
+  const lv = e.target.closest('[data-sdlevel]'); if (lv) { settings.sdLevel = lv.dataset.sdlevel; store.set('settings', settings); sfx('click'); renderModes(); return; }
+  const sm = e.target.closest('[data-sdmode]'); if (sm) { sfx('click'); sudokuMode(sm.dataset.sdmode); return; }
   const ct = e.target.closest('[data-ctype]'); if (ct) { settings.carromMode = ct.dataset.ctype; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const sk = e.target.closest('[data-stk]'); if (sk) { settings.striker = +sk.dataset.stk; store.set('settings', settings); sfx('click'); if (rboard) rboard.setStrikerStyle(settings.striker); renderModes(); return; }
   const b = e.target.closest('[data-mode]'); if (!b) return; sfx('click');
@@ -485,6 +490,7 @@ function setDiceFace(v) {
 function renderCards() {
   if (!G) return;
   if (G.s && G.s.game === 'patta') return renderPatta();
+  if (G.s && G.s.game === 'sudoku') return renderRace();
   if (G.s && G.s.game === 'chess') return renderChessCards();
   if (G.s && G.s.game === 'carrom') return renderCarromCards();
   const s = G.s;
@@ -645,7 +651,7 @@ const SPK_ON = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path
 const SPK_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>';
 function syncSpeaker() {
   const on = settings.sound || settings.music;
-  ['gameSound', 'cSound', 'rSound', 'pSound'].forEach(id => {
+  ['gameSound', 'cSound', 'rSound', 'pSound', 'sdSound'].forEach(id => {
     $(id).innerHTML = on ? SPK_ON : SPK_OFF;
     $(id).setAttribute('aria-label', on ? 'Sound on' : 'Sound off');
     $(id).classList.toggle('off', !on);
@@ -661,6 +667,7 @@ $('gameSound').onclick = () => {
 };
 syncSpeaker();
 function leaveGame() {
+  if (G && G.game === 'sudoku' && G.mode !== 'online') { saveSudoku(); G = null; show('gamehome'); return; }
   confirmBox('Leave the game?', G && G.mode === 'online' ? 'You can come back with the same room code while the game is on.' : 'This game will end.', 'Leave', 'Stay', () => {
     if (G && G.mode === 'online') endOnline();
     G = null; show('gamehome');
@@ -781,6 +788,7 @@ $('winAgain').onclick = () => {
   if (!G) return show('home');
   if (G.mode === 'online') { G.net.send({ t: 'again' }); return; }
   if (G.s && G.s.game === 'carrom') return startCarrom(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })), G.s.mode);
+  if (G.game === 'sudoku' && G.mode !== 'online') { startSudoku(G.daily ? 'medium' : G.sd.level, null); return; }
   if (G.s && G.s.game === 'patta') return startPatta(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   if (G.s && G.s.game === 'chess') return startChess(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   const again = G.s.players.map(p => ({ id: p.id, name: p.name, color: p.color, kind: p.kind, look: p.look }));
@@ -1730,6 +1738,209 @@ function finishPatta() {
   show('win'); startDance();
 }
 
+// ---------- Sudoku ----------
+// G.sd holds the board: puzzle, solution, cur (what is in each cell), notes (bit masks),
+// bad (cells with a wrong number), mistakes, hints, time, undo list.
+function sudokuModesHtml() {
+  const saved = store.get('sudoku', null), d = new Date(), daySeed = dailySeed(d);
+  const dailyDone = history.some(h => h.game === 'sudoku' && h.daily === daySeed && h.result === 'won');
+  const fmt = ms => { const t = Math.floor(ms / 1000); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
+  const btn = (k, t, sub, cls, extra) => `<button class="sdmode ${cls}" data-sdmode="${k}"><span class="col grow"><b>${t}</b><small>${sub}</small></span>${extra || ''}</button>`;
+  return `<div class="chips sdlevels">${SD_LEVELS.map(l => `<button class="chip ${settings.sdLevel === l ? 'on' : ''}" data-sdlevel="${l}">${SD_NAME[l]}</button>`).join('')}</div>
+    ${saved && !saved.over ? btn('cont', 'Continue', `${SD_NAME[saved.level]}${saved.daily ? ' daily' : ''} · ${fmt(saved.time)} · ${saved.mistakes}/3 mistakes`, 'gold') : ''}
+    ${btn('new', 'New game', SD_NAME[settings.sdLevel] + ' puzzle', saved && !saved.over ? 'plum' : 'gold')}
+    ${btn('daily', '🏆 Daily puzzle', d.toLocaleDateString(undefined, { day: 'numeric', month: 'long' }) + (dailyDone ? ' · solved ✓' : ' · same for everyone'), 'teal')}
+    ${btn('online', 'Race a friend', `Same ${SD_NAME[settings.sdLevel]} puzzle, talk on mic. First to finish wins`, 'ruby')}
+    ${btn('join', 'Join a race', 'Enter your friend’s room code', 'blue')}`;
+}
+function sudokuMode(m) {
+  if (m === 'cont') { const sv = store.get('sudoku', null); if (sv) { G = { mode: 'solo', game: 'sudoku', sd: sv, daily: sv.daily }; enterSudoku(); } return; }
+  if (m === 'new') return startSudoku(settings.sdLevel, null);
+  if (m === 'daily') return startSudoku('medium', dailySeed());
+  if (m === 'online') return createRoom();
+  if (m === 'join') { $('joinCode').value = ''; $('joinErr').textContent = ''; show('join'); }
+}
+function newBoard(seed, level) {
+  const p = makePuzzle(seed, level);
+  return { seed, level, puzzle: p.puzzle, solution: p.solution, cur: p.puzzle.slice(), notes: Array(81).fill(0), bad: [], mistakes: 0, hints: 3, time: 0, undo: [], over: false, second: false };
+}
+function startSudoku(level, daily) {
+  const seed = daily || Math.floor(Math.random() * 1e6);
+  G = { mode: 'solo', game: 'sudoku', sd: newBoard(seed, level), daily: daily || null };
+  G.sd.daily = daily || null;
+  saveSudoku(); enterSudoku();
+}
+function saveSudoku() { if (G && G.game === 'sudoku' && G.mode !== 'online' && G.sd) store.set('sudoku', Object.assign({}, G.sd, { undo: G.sd.undo.slice(-60) })); }
+function enterSudoku() {
+  dropBoard(); dropCBoard(); dropRBoard();
+  G.sel = G.sel != null ? G.sel : G.sd.cur.findIndex(v => !v);
+  G.notes = false; G.tick = Date.now();
+  show('sudoku');
+  $('sdRace').classList.toggle('show', G.mode === 'online');
+  setBadges(); syncMicButtons(); syncSpeaker();
+  renderSudoku(); music(false);
+}
+const sdFilled = sd => sd.cur.reduce((a, v, i) => a + (!sd.puzzle[i] && v === sd.solution[i] ? 1 : 0), 0);
+function renderSudoku() {
+  if (!G || !G.sd || current !== 'sudoku') return;
+  const sd = G.sd, sel = G.sel, sv = sel >= 0 ? sd.cur[sel] : 0;
+  const pr = sel >= 0 ? new Set(sdPeers(sel)) : new Set();
+  $('sdGrid').innerHTML = sd.cur.map((v, i) => {
+    const r = Math.floor(i / 9), c = i % 9, cls = [];
+    if (c % 3 === 2 && c < 8) cls.push('br'); if (r % 3 === 2 && r < 8) cls.push('bb');
+    if (pr.has(i)) cls.push('hl');
+    if (sv && v === sv) cls.push('same');
+    if (i === sel) cls.push('sel');
+    if (sd.puzzle[i]) cls.push('given'); else if (v) cls.push('u');
+    if (sd.bad.includes(i)) cls.push('err');
+    let inner = v || '';
+    if (!v && sd.notes[i]) inner = `<span class="nt">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<span>${sd.notes[i] & (1 << n) ? n : ''}</span>`).join('')}</span>`;
+    return `<button class="${cls.join(' ')}" data-i="${i}" aria-label="Row ${r + 1} column ${c + 1}${v ? ', ' + v : ''}">${inner}</button>`;
+  }).join('');
+  const left = n => 9 - sd.cur.filter((v, i) => v === n && !sd.bad.includes(i)).length;
+  $('sdPad').innerHTML = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button class="${left(n) ? '' : 'done'}" data-n="${n}">${n}<small>${left(n) || '✓'}</small></button>`).join('');
+  $('sdLevel').innerHTML = `${G.daily ? '🏆 Daily · ' : ''}<b>${SD_NAME[sd.level]}</b>`;
+  $('sdMist').textContent = `${sd.mistakes}/${SD_MAX}`;
+  $('sdMist').classList.toggle('bad', sd.mistakes > 0);
+  $('sdNotes').classList.toggle('on', !!G.notes);
+  $('sdHintN').textContent = sd.hints;
+  $('sdHint').classList.toggle('none', !sd.hints);
+  $('sdOut').classList.toggle('show', G.mode === 'online' && !!G.out);
+  sudokuClock();
+  if (G.mode === 'online') renderRace();
+}
+function sudokuClock() {
+  if (!G || !G.sd) return;
+  const now = Date.now();
+  if (!G.sd.over && current === 'sudoku' && !document.hidden) G.sd.time += now - (G.tick || now);
+  G.tick = now;
+  const t = Math.floor(G.sd.time / 1000);
+  $('sdTime').textContent = String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+}
+setInterval(() => { if (G && G.game === 'sudoku' && current === 'sudoku') { sudokuClock(); if (Math.floor(G.sd.time / 1000) % 10 === 0) saveSudoku(); } }, 1000);
+$('sdGrid').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (!b || !G || !G.sd) return; G.sel = +b.dataset.i; renderSudoku(); });
+function sdPlace(n) {
+  const sd = G.sd, i = G.sel; if (sd.over || i == null || i < 0 || sd.puzzle[i] || (G.mode === 'online' && G.out)) return;
+  if (sd.cur[i] && !sd.bad.includes(i)) return; // already right
+  sd.undo.push({ i, v: sd.cur[i], n: sd.notes[i], bad: sd.bad.includes(i) });
+  if (G.notes) {
+    if (sd.cur[i]) return;
+    sd.notes[i] ^= 1 << n; sfx('step'); renderSudoku(); saveSudoku(); return;
+  }
+  sd.cur[i] = n; sd.notes[i] = 0;
+  if (n === sd.solution[i]) {
+    sd.bad = sd.bad.filter(x => x !== i);
+    sdPeers(i).forEach(k => { sd.notes[k] &= ~(1 << n); });
+    sfx('hop');
+    const done = sd.cur.every((v, k) => v === sd.solution[k]);
+    // Little glow when a row, column or box is complete.
+    const r = Math.floor(i / 9), c = i % 9, bx = r - r % 3, by = c - c % 3;
+    const full = idx => idx.every(k => sd.cur[k] === sd.solution[k]);
+    if (!done && (full([...Array(9)].map((_, k) => r * 9 + k)) || full([...Array(9)].map((_, k) => k * 9 + c)) || full([...Array(9)].map((_, k) => (bx + Math.floor(k / 3)) * 9 + by + k % 3)))) { sfx('finish'); G.flash = i; }
+    if (done) { sd.over = true; renderSudoku(); saveSudoku(); return sudokuSolved(); }
+  } else {
+    if (!sd.bad.includes(i)) sd.bad.push(i);
+    sd.mistakes++; sfx('capture'); buzz([60, 40, 60]);
+    if (sd.mistakes >= SD_MAX) { renderSudoku(); saveSudoku(); return sudokuFailed(); }
+  }
+  renderSudoku(); saveSudoku();
+  if (G.mode === 'online') G.net.send({ t: 'sprog', filled: sdFilled(sd), mistakes: sd.mistakes });
+}
+$('sdPad').addEventListener('click', e => { const b = e.target.closest('[data-n]'); if (b && G && G.sd) sdPlace(+b.dataset.n); });
+$('sdUndo').onclick = () => {
+  const sd = G && G.sd; if (!sd || sd.over || !sd.undo.length) return;
+  const u = sd.undo.pop(); sd.cur[u.i] = u.v; sd.notes[u.i] = u.n; sd.bad = sd.bad.filter(x => x !== u.i); if (u.bad) sd.bad.push(u.i);
+  G.sel = u.i; sfx('click'); renderSudoku(); saveSudoku();
+};
+$('sdErase').onclick = () => {
+  const sd = G && G.sd, i = G && G.sel; if (!sd || sd.over || i == null || i < 0 || sd.puzzle[i]) return;
+  if (sd.cur[i] && !sd.bad.includes(i)) return;
+  sd.undo.push({ i, v: sd.cur[i], n: sd.notes[i], bad: sd.bad.includes(i) });
+  sd.cur[i] = 0; sd.notes[i] = 0; sd.bad = sd.bad.filter(x => x !== i); sfx('click'); renderSudoku(); saveSudoku();
+};
+$('sdNotes').onclick = () => { if (!G || !G.sd) return; G.notes = !G.notes; sfx('click'); renderSudoku(); toast(G.notes ? 'Notes on: numbers go in small' : 'Notes off', '#3A2490'); };
+$('sdHint').onclick = () => {
+  const sd = G && G.sd; if (!sd || sd.over || (G.mode === 'online' && G.out)) return;
+  if (!sd.hints) { toast('No hints left in this game', '#3A2490'); return; }
+  let i = G.sel;
+  if (i == null || i < 0 || sd.puzzle[i] || (sd.cur[i] === sd.solution[i])) i = sd.cur.findIndex((v, k) => v !== sd.solution[k]);
+  if (i < 0) return;
+  sd.hints--; G.sel = i;
+  const n = sd.solution[i], wasNotes = G.notes; G.notes = false;
+  sd.bad = sd.bad.filter(x => x !== i); sd.cur[i] = 0;
+  const m = sd.mistakes; sdPlace(n); sd.mistakes = m; G.notes = wasNotes;
+  renderSudoku(); saveSudoku();
+};
+$('sdBack').onclick = () => leaveGame();
+$('sdSound').onclick = () => $('gameSound').onclick();
+$('sdChat').onclick = () => { sfx('click'); openChat(); };
+function sudokuSolved() {
+  const sd = G.sd, t = Math.floor(sd.time / 1000), tt = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  if (G.mode === 'online') { G.net.send({ t: 'sdone', grid: sd.cur }); return; }
+  store.set('sudoku', null);
+  addHistory({ game: 'sudoku', mode: 'solo', result: 'won', of: 1, score: `${SD_NAME[sd.level]} in ${tt}${sd.mistakes ? ` · ${sd.mistakes} mistake${sd.mistakes > 1 ? 's' : ''}` : ''}`, daily: G.daily || undefined, opp: [] });
+  $('winTitle').textContent = 'Solved!';
+  $('winSub').textContent = `${G.daily ? 'Daily puzzle' : SD_NAME[sd.level] + ' puzzle'} in ${tt}${sd.mistakes ? '' : ' with no mistakes'}`;
+  danceStage({ look: profile.look, tint: profile.color, name: profile.name }, []);
+  $('winRest').innerHTML = '';
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
+  $('winAgain').style.display = 'flex'; $('winAgain').textContent = 'New puzzle';
+  buzz([60, 40, 60, 40, 120]);
+  setTimeout(() => { show('win'); startDance(); }, 700);
+}
+function sudokuFailed() {
+  const sd = G.sd;
+  if (G.mode === 'online') { G.out = true; G.net.send({ t: 'sprog', filled: sdFilled(sd), mistakes: sd.mistakes }); renderSudoku(); return; }
+  modal(`<h3>3 mistakes</h3><p>${sd.second ? 'That was your second chance.' : 'Keep going with one more chance, or start again.'}</p>
+    ${sd.second ? '' : '<button class="btn gold" id="mYes">Second chance</button>'}<button class="btn ghost" id="mNo">New game</button>`);
+  if (!sd.second) $('mYes').onclick = () => { closeModal(); sd.second = true; sd.mistakes = SD_MAX - 1; renderSudoku(); saveSudoku(); };
+  $('mNo').onclick = () => {
+    closeModal();
+    addHistory({ game: 'sudoku', mode: 'solo', result: 'lost', of: 1, score: `${SD_NAME[sd.level]} · 3 mistakes`, daily: G.daily || undefined, opp: [] });
+    store.set('sudoku', null); startSudoku(sd.level, null);
+  };
+}
+// Online race
+function renderRace() {
+  if (!G || !G.s || G.s.game !== 'sudoku' || current !== 'sudoku') return;
+  const s = G.s;
+  $('sdRacers').innerHTML = s.players.map(p => {
+    const lp = G.lobby.find(x => x.pid === p.id), speaking = G.speaking && G.speaking.has(p.id), f = Math.round(p.filled / s.total * 100);
+    return `<div class="racer ${p.out || p.left ? 'out' : ''}" data-pid="${p.id}">${avatar(p.look, p.tint != null ? p.tint : 0, speaking ? 'speak' : '', p.id)}
+      <div class="col grow minw0"><span class="nm">${esc(p.id === pid ? 'You' : p.name)}${lp && lp.mic ? ' 🎙️' : ''}</span><span class="rbar"><i style="width:${f}%"></i></span><span class="st">${p.left ? 'Left' : p.out ? 'Out (3 mistakes)' : `${f}% · ${p.mistakes}/3`}</span></div></div>`;
+  }).join('');
+}
+function onRaceState(m) {
+  G.s = m.s;
+  if (m.s.over && m.t === 'sync') { onRaceEnd(m); return; }
+  if (!G.sd || G.sd.seed !== m.s.seed) { G.sd = newBoard(m.s.seed, m.s.level); G.out = false; G.sel = null; }
+  const me = m.s.players.find(p => p.id === pid); if (me && me.out) G.out = true;
+  if (current !== 'sudoku') enterSudoku(); else renderSudoku();
+  if (m.t === 'start') { sfx('turn'); toast('Go! Same puzzle for everyone', '#3A2490'); }
+}
+function onRaceProg(m) {
+  const before = G.s; G.s = m.s;
+  if (before) m.s.players.forEach(p => { const o = before.players.find(x => x.id === p.id); if (p.id !== pid && o && !o.out && p.out) toast(`${p.name} is out (3 mistakes)`, '#3A2490'); });
+  renderRace();
+}
+function onRaceEnd(m) {
+  G.s = m.s; if (G.sd) G.sd.over = true;
+  const s = m.s, W = s.players.find(p => p.id === s.winner) || s.players[0], iWon = W.id === pid;
+  const me = s.players.find(p => p.id === pid);
+  if (me) addHistory({ game: 'sudoku', mode: 'online', result: iWon ? 'won' : 'lost', of: s.players.length, rank: iWon ? 1 : 2, score: `${SD_NAME[s.level]} race · ${Math.round(me.filled / s.total * 100)}% done`,
+    opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint || 0 })) });
+  $('winTitle').textContent = iWon ? 'You won the race!' : `${W.name} won!`;
+  $('winSub').textContent = s.reason === 'solved' ? `${iWon ? 'You' : W.name} solved it first` : s.reason === 'others-out' ? 'Everyone else made 3 mistakes or left' : 'Most cells filled';
+  danceStage({ look: W.look, tint: W.tint || 0, name: W.name }, s.players.filter(p => p.id !== W.id).map(p => ({ look: p.look, tint: p.tint || 0 })));
+  $('winRest').innerHTML = `<div class="rankchips">${s.players.filter(p => p.id !== W.id).map((p, k) => `<span class="rankchip"><b>${k + 2}</b>${esc(p.name)} · ${Math.round(p.filled / s.total * 100)}%</span>`).join('')}</div>`;
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
+  $('winAgain').style.display = G.host ? 'flex' : 'none';
+  buzz([60, 40, 60, 40, 120]);
+  setTimeout(() => { show('win'); startDance(); }, 600);
+}
+
 // ---------- Win dance: everyone does bhangra to the dhol ----------
 // Sheets: img/dance<character>-<team colour>.webp, 8 frames. The music has a beat every 0.6 s
 // starting at 0.55 s; a knee goes up on each beat and lands half a beat later.
@@ -1741,6 +1952,7 @@ function danceStage(main, others) {
   // (On a draw there is no winner, so both dance.)
   const spots = [[14, 112], [86, 112], [50, 250]];
   const sheet = d => `url(img/dance${ch(d.look)}-${d.tint}.webp)`;
+  $('winAgain').textContent = 'Play again';
   $('trophy').style.display = 'none';
   $('podium').innerHTML = `<div class="stage${main ? '' : ' nomain'}">
     ${main ? back.map((d, i) => `<div class="loser" style="left:${spots[i][0]}%;bottom:${spots[i][1] - 40}px"><span class="rain">&#127783;&#65039;</span><img src="img/c${ch(d.look)}-${d.tint}.png" alt=""></div>`).join('')
@@ -1814,7 +2026,7 @@ function openRoom(code) {
   G.voice.setListen(settings.listen);
   G.voice.setVoiceVolume(vol.voice / 100); G.voice.setMicVolume(vol.mic / 50);
   G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (PLAY_SCREENS.includes(current)) renderCards(); };
-  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: settings.carromMode });
+  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: GAME === 'sudoku' ? settings.sdLevel : settings.carromMode });
   roomPhotos.clear();
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
@@ -1850,9 +2062,9 @@ function endOnline() {
 function syncMicButtons() {
   if (!G || !G.voice) return;
   const on = G.voice.hasMic() && !G.voice.muted;
-  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
+  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
 }
-['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic'].forEach(id => $(id).onclick = async () => {
+['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic'].forEach(id => $(id).onclick = async () => {
   if (!G || !G.voice) return;
   if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
   else G.voice.setMuted(!G.voice.muted);
@@ -1864,7 +2076,7 @@ function syncMicButtons() {
 function renderLobby() {
   if (!G) return;
   const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : 4;
-  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : GAME_NAME[G.game || 'ludo']) + ' room';
+  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : GAME_NAME[G.game || 'ludo']) + (G.game === 'sudoku' ? '' : ' room');
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
   const rows = L.map((p, i) => {
@@ -1927,6 +2139,7 @@ async function onNet(m) {
       if (m.s && m.s.game === 'chess') { onChessState(m); break; }
       if (m.s && m.s.game === 'carrom') { onCarromState(m); break; }
       if (m.s && m.s.game === 'patta') { onPattaState(m); break; }
+      if (m.s && m.s.game === 'sudoku') { onRaceState(m); break; }
       G.s = m.s; G.turnEnds = m.turnEnds || null; G.busy = false;
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
@@ -1964,6 +2177,8 @@ async function onNet(m) {
     }
     case 'rshot': await onCarromShot(m); break;
     case 'pev': await onPattaEv(m); break;
+    case 'sprog': onRaceProg(m); break;
+    case 'send': onRaceEnd(m); break;
     case 'rend': onCarromEnd(m); break;
     case 'passed':
       if (G.s && G.s.game === 'carrom') { onCarromPassed(m); break; }
@@ -2045,7 +2260,7 @@ function colorOf(id) {
 }
 function setBadges() {
   const n = (G && G.unread) || 0;
-  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
+  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge', 'sdBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
 }
 function onChat(m) {
   G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();

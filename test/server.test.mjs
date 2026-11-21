@@ -108,4 +108,20 @@ room.clearTurn();
   check(r.s.over, 'patta game finished');
   r.clearTurn();
 }
+// Sudoku race: same puzzle, progress shared, a correct grid wins, a wrong one is refused
+{
+  const { makePuzzle } = await import('../app/src/main/assets/www/js/sudoku.js');
+  const r = new Room({}, {}); r.claimed = true; r.code = 'SUDOK';
+  const ws = ['a', 'b'].map(mk);
+  ws.forEach((w, i) => r.onMsg(w, JSON.stringify({ t: 'hello', pid: 'z' + i, name: 'Z' + i, game: 'sudoku', mode: 'hard' })));
+  r.onMsg(ws[0], JSON.stringify({ t: 'start' }));
+  check(r.s && r.s.game === 'sudoku' && r.s.level === 'hard', 'sudoku started');
+  const pz = makePuzzle(r.s.seed, r.s.level);
+  r.onMsg(ws[1], JSON.stringify({ t: 'sprog', filled: 10, mistakes: 1 }));
+  check(ws[0].got.some(m => m.t === 'sprog' && m.s.players[1].filled === 10), 'progress shared');
+  r.onMsg(ws[1], JSON.stringify({ t: 'sdone', grid: pz.puzzle }));
+  check(!r.s.over, 'wrong grid refused');
+  r.onMsg(ws[1], JSON.stringify({ t: 'sdone', grid: pz.solution }));
+  check(r.s.over && r.s.winner === 'z1', 'solver wins');
+}
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);
