@@ -68,3 +68,24 @@ export function music(on) {
 }
 
 export function unlock() { ac(); }
+
+// ---------- Win music (bhangra track from a file) ----------
+let track = null;
+const buffers = {};
+// Plays a music file once. Returns at once; trackTime() tells how far it has played.
+export async function playTrack(url) {
+  stopTrack();
+  const c = ac(); if (!c) return;
+  const my = track = { start: null };
+  if (!prefs.music && !prefs.sound) return;
+  try {
+    if (!buffers[url]) { const r = await fetch(url); buffers[url] = await c.decodeAudioData(await r.arrayBuffer()); }
+    if (track !== my) return;
+    const s = c.createBufferSource(), g = c.createGain();
+    s.buffer = buffers[url]; g.gain.value = 0.9;
+    s.connect(g); g.connect(c.destination);
+    my.start = c.currentTime + 0.05; my.src = s; s.start(my.start);
+  } catch (e) { /* no music, the dance still plays */ }
+}
+export function stopTrack() { if (track && track.src) { try { track.src.stop(); } catch (e) { /* ignore */ } } track = null; }
+export function trackTime() { return track && track.start != null && ctx ? ctx.currentTime - track.start : null; }

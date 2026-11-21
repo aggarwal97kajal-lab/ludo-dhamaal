@@ -1,6 +1,6 @@
 import { newGame, roll, move, passTurn, botChoice, seatColors, playerOf, FINISH } from './rules.js';
 import { Board3D } from './board3d.js';
-import { sfx, buzz, music, prefs, unlock } from './sound.js';
+import { sfx, buzz, music, prefs, unlock , playTrack, stopTrack, trackTime } from './sound.js';
 import { Net } from './net.js';
 import { Voice, loadIce } from './voice.js';
 import * as VoiceMod from './voice.js';
@@ -44,6 +44,7 @@ let current = 'splash';
 function show(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.toggle('show', s.id === id));
   current = id;
+  if (id !== 'win') stopDance();
   if (board) board.paused = id !== 'game';
   if (cboard) cboard.paused = id !== 'chess';
   if (rboard) rboard.paused = id !== 'carrom';
@@ -541,16 +542,13 @@ function finishGame() {
   const iWon = me && winner.id === pid;
   $('winTitle').textContent = iWon ? 'You won!' : `${winner.name} won!`;
   $('winSub').textContent = iWon ? (s.game === 'snakes' ? 'You reached 100 first!' : 'All 4 of your players made it home') : (s.game === 'snakes' ? `${winner.name} reached 100 first` : 'Good game! Try again?');
-  const podOrder = [1, 0, 2].filter(i => i < ranks.length);
-  const H = [150, 110, 80];
-  $('podium').innerHTML = podOrder.map(i => { const p = P(ranks[i]); return `<div class="col center gap10"><div>${body(p.look, p.color, 120)}</div><b>${esc(p.name)}</b><div class="pod" style="height:${H[i]}px;background:${UI[p.color]};border-color:${UI_EDGE[p.color]};color:${UI_FG[p.color]}">${i + 1}</div></div>`; }).join('');
-  $('trophy').style.display = '';
-  $('winRest').innerHTML = ranks.slice(3).map((c, i) => `<div class="restrow"><b style="font-size:22px;color:#C9C1F0">${i + 4}</b><b class="grow">${esc(P(c).name)}</b><span class="small muted">Better luck next time!</span></div>`).join('');
+  danceStage({ look: winner.look, tint: winner.color, name: winner.name }, ranks.slice(1).map(c => ({ look: P(c).look, tint: P(c).color })));
+  $('winRest').innerHTML = `<div class="rankchips">${ranks.slice(1).map((c, i) => `<span class="rankchip"><b>${i + 2}</b>${esc(P(c).name)}</span>`).join('')}</div>`;
   const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
   $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
   $('winAgain').style.display = G.mode === 'online' ? (G.host ? 'flex' : 'none') : 'flex';
-  sfx('win'); buzz([60, 40, 60, 40, 120]);
-  show('win');
+  buzz([60, 40, 60, 40, 120]);
+  show('win'); startDance();
 }
 $('winAgain').onclick = () => {
   if (!G) return show('home');
@@ -851,15 +849,15 @@ function finishChess() {
   $('winTitle').textContent = res.title;
   $('winSub').textContent = res.sub;
   const W = s.winner ? [chessPlayer(s, s.winner)] : s.players;
-  $('podium').innerHTML = W.map(p => { const tint = p.tint != null ? p.tint : (p.color === 'w' ? 2 : 3); return `<div class="col center gap10"><div>${body(p.look, tint, 150)}</div><b>${esc(p.name)}</b><span class="small muted">${SIDE[p.color]}</span></div>`; }).join('');
+  const tintOf = p => p.tint != null ? p.tint : (p.color === 'w' ? 2 : 3);
+  if (s.winner) { const L = s.players.find(p => p.color !== s.winner); danceStage({ look: W[0].look, tint: tintOf(W[0]), name: W[0].name }, L ? [{ look: L.look, tint: tintOf(L) }] : []); }
+  else danceStage(null, s.players.map(p => ({ look: p.look, tint: tintOf(p) })));
   $('winRest').innerHTML = '';
-  $('trophy').style.display = s.winner ? '' : 'none';
   const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
   $('winConf').innerHTML = s.winner ? Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('') : '';
   $('winAgain').style.display = G.mode === 'online' ? (G.host ? 'flex' : 'none') : 'flex';
-  if (meColor && s.winner && s.winner !== meColor) sfx('capture'); else sfx('win');
   buzz([60, 40, 60, 40, 120]);
-  show('win');
+  show('win'); startDance();
 }
 $('cHelp').addEventListener('change', e => {
   settings.chessHelp = e.target.checked; store.set('settings', settings); sfx('click');
@@ -1144,16 +1142,56 @@ function finishCarrom() {
   const iWon = meI === s.winner;
   $('winTitle').textContent = iWon ? 'You won!' : `${W.name} won!`;
   $('winSub').textContent = s.reason === 'left' ? 'The other player left the game' : `${iWon ? 'You' : W.name} pocketed all 9 coins first (${s.got[0]} - ${s.got[1]})`;
-  $('podium').innerHTML = `<div class="col center gap10"><div>${body(W.look, W.tint != null ? W.tint : 0, 150)}</div><b>${esc(W.name)}</b><span class="small muted">${CSIDE[s.winner]} coins</span></div>`;
+  const Lo = s.players[1 - s.winner];
+  danceStage({ look: W.look, tint: W.tint != null ? W.tint : 0, name: W.name }, Lo ? [{ look: Lo.look, tint: Lo.tint != null ? Lo.tint : 3 }] : []);
   $('winRest').innerHTML = '';
-  $('trophy').style.display = '';
   const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
   $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
   $('winAgain').style.display = G.mode === 'online' ? (G.host ? 'flex' : 'none') : 'flex';
-  if (meI >= 0 && !iWon) sfx('capture'); else sfx('win');
   buzz([60, 40, 60, 40, 120]);
-  show('win');
+  show('win'); startDance();
 }
+
+// ---------- Win dance: everyone does bhangra to the dhol ----------
+// Sheets: img/dance<character>-<team colour>.webp, 8 frames. The music has a beat every 0.6 s
+// starting at 0.55 s; a knee goes up on each beat and lands half a beat later.
+const DANCE_T0 = 0.55, DANCE_BEAT = 0.6;
+let danceRAF = null, danceClock = 0;
+function danceStage(main, others) {
+  const back = others.slice(0, 3);
+  // Friends dance at the sides; with three, the third one dances behind, above the winner.
+  const spots = [[14, 112], [86, 112], [50, 250]];
+  const sheet = d => `url(img/dance${ch(d.look)}-${d.tint}.webp)`;
+  $('trophy').style.display = 'none';
+  $('podium').innerHTML = `<div class="stage${main ? '' : ' nomain'}">
+    ${back.map((d, i) => `<div class="dancer back" style="left:${main ? spots[i][0] : [30, 70, 50][i]}%;bottom:${main ? spots[i][1] : 40}px;background-image:${sheet(d)}"></div>`).join('')}
+    ${main ? `<div class="dancer main" style="background-image:${sheet(main)}"></div>` : ''}
+    <div class="balle">Balle Balle!</div>
+  </div>`;
+}
+function startDance() {
+  stopDance();
+  danceClock = performance.now();
+  playTrack('sound/bhangra.m4a');
+  const els = [...document.querySelectorAll('#podium .dancer')], balle = document.querySelector('#podium .balle');
+  const tick = () => {
+    const tt = trackTime();
+    const t = tt != null ? tt : (performance.now() - danceClock) / 1000;
+    const b = (t - DANCE_T0) / DANCE_BEAT;
+    const k = b < 0 ? 3 : Math.floor(b * 2) % 8, f = ((b % 1) + 1) % 1;
+    const up = b >= 0 && k % 2 === 0;
+    const hop = up ? Math.sin(Math.PI * Math.min(1, f / 0.5)) : 0;
+    els.forEach(el => {
+      const big = el.classList.contains('main');
+      el.style.backgroundPosition = `${(k / 7) * 100}% 0`;
+      el.style.transform = `translateY(${-hop * (big ? 16 : 9)}px) rotate(${Math.sin(Math.PI * b) * 3}deg)`;
+    });
+    if (balle) balle.style.transform = `translateX(-50%) scale(${1 + 0.08 * Math.max(0, 1 - f * 4)})`;
+    danceRAF = requestAnimationFrame(tick);
+  };
+  danceRAF = requestAnimationFrame(tick);
+}
+function stopDance() { if (danceRAF) cancelAnimationFrame(danceRAF); danceRAF = null; stopTrack(); }
 
 // ---------- Online ----------
 function netReady() {
@@ -1505,5 +1543,5 @@ window.ldBack = () => {
 };
 document.addEventListener('visibilitychange', () => music(!document.hidden && !['game', 'chess', 'carrom'].includes(current)));
 
-window.__ld = () => G; window.__board = () => board; window.__cboard = () => cboard; window.__rboard = () => rboard;
+window.__ld = () => G; window.__board = () => board; window.__cboard = () => cboard; window.__rboard = () => rboard; window.__finish = () => finishGame();
 splash();
