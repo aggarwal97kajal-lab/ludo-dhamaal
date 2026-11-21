@@ -33,6 +33,27 @@ class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
     private var pendingMic: PermissionRequest? = null
     private val micCode = 41
+    private var pendingRoom: String? = null
+
+    // Room code from a link like .../r/ABCDE or pitara://room/ABCDE
+    private fun roomFrom(intent: Intent?): String? {
+        val d = intent?.data ?: return null
+        val code = d.pathSegments.lastOrNull() ?: d.host
+        return code?.uppercase()?.takeIf { Regex("^[A-Z0-9]{5}$").matches(it) }
+    }
+
+    // Hands the room code to the game once the page is ready (the page asks for it on start too).
+    private fun deliverRoom() {
+        val code = pendingRoom ?: return
+        web.evaluateJavascript("(window.ldDeepLink && window.ldDeepLink('$code')) ? 'y' : 'n'") { v ->
+            if (v != null && v.contains("y")) pendingRoom = null
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        roomFrom(intent)?.let { pendingRoom = it; deliverRoom() }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,6 +62,7 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = Color.parseColor("#160D3D")
         window.navigationBarColor = Color.parseColor("#160D3D")
 
+        pendingRoom = roomFrom(intent)
         setupWeb(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -181,6 +203,9 @@ class MainActivity : AppCompatActivity() {
     inner class Bridge {
         @JavascriptInterface
         fun speaker() { runOnUiThread { useLoudspeaker() } } // picks headphones if connected, else loudspeaker
+
+        @JavascriptInterface
+        fun takeRoom(): String { val c = pendingRoom ?: ""; pendingRoom = null; return c }
 
         @JavascriptInterface
         fun copy(text: String) {

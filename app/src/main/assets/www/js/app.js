@@ -71,11 +71,33 @@ function splash() {
     p = Math.min(100, p + 9 + Math.random() * 14);
     $('loadFill').style.width = p + '%';
     $('loadText').textContent = 'Setting up the board... ' + Math.round(p) + '%';
-    if (p >= 100) { clearInterval(t); setTimeout(() => { show(profile ? 'home' : 'profile'); if (profile) offerRejoin(); }, 250); if (!profile) openProfile(); }
+    if (p >= 100) { clearInterval(t); setTimeout(() => { show(profile ? 'home' : 'profile'); if (profile && !takeLinkRoom()) offerRejoin(); }, 250); if (!profile) openProfile(); }
   }, 140);
 }
 
 // If the app was closed during an online game (or Android restarted it), offer to go back in.
+// ---------- Room links (…/r/ABCDE opens the app straight in that room) ----------
+let linkRoom = null;
+function takeLinkRoom() {
+  let code = null;
+  try { code = window.LDNative && window.LDNative.takeRoom ? window.LDNative.takeRoom() : null; } catch (e) { /* no bridge */ }
+  if (code) linkRoom = code;
+  if (!linkRoom || !profile) return false;
+  const c = linkRoom; linkRoom = null; joinFromLink(c); return true;
+}
+function joinFromLink(code) {
+  if (G && G.mode === 'online' && G.code === code) return;
+  const go = () => { if (G && G.mode === 'online') endOnline(); G = null; openRoom(code); };
+  if (G && G.s && !G.s.over) confirmBox('Join the new room?', `You will leave this game and join room ${code}.`, 'Join', 'Stay', go);
+  else go();
+}
+// Called by the app when a room link is tapped while Pitara is already open.
+window.ldDeepLink = code => {
+  if (!profile || current === 'splash' || current === 'profile') { linkRoom = code; return true; }
+  joinFromLink(code); return true;
+};
+function roomLink(code) { return Net.serverBase() + '/r/' + code; }
+
 function offerRejoin() {
   const r = store.get('room', null);
   if (!r || !r.code || Date.now() - r.at > 3 * 60 * 60 * 1000) return;
@@ -104,7 +126,7 @@ $('pfSave').onclick = () => {
   const name = $('pfName').value.trim().replace(/\s+/g, ' ');
   if (name.length < 2) { $('pfErr').textContent = 'Enter a name with at least 2 letters'; return; }
   profile = { name, look: pfLook, color: pfColor };
-  store.set('profile', profile); sfx('pop'); show('home');
+  store.set('profile', profile); sfx('pop'); show('home'); takeLinkRoom();
 };
 
 // ---------- Home ----------
@@ -1306,7 +1328,7 @@ $('lobbyStart').onclick = () => { if (G && G.host) { sfx('click'); G.net.send({ 
 $('lobbyBack').onclick = () => confirmBox('Leave the room?', 'You will leave this room.', 'Leave', 'Stay', () => { endOnline(); G = null; show('gamehome'); });
 $('lobbyShare').onclick = () => {
   if (!G) return;
-  const text = `Let's play ${GAME_NAME[G.game || 'ludo']} on Pitara! Open the app, tap "Join a room" and enter code: ${G.code}`;
+  const text = `Let's play ${GAME_NAME[G.game || 'ludo']} on Pitara! Tap to join my room: ${roomLink(G.code)}\n\nOr open Pitara, tap "Join a room" and enter code: ${G.code}`;
   if (window.LDNative && window.LDNative.shareWhatsApp) window.LDNative.shareWhatsApp(text);
   else window.location.href = 'https://wa.me/?text=' + encodeURIComponent(text);
 };

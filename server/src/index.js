@@ -8,13 +8,20 @@ const CARROM_MS = 20000;
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'content-type' };
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const TURN_MS = 15000;
+const PKG = 'com.ludodhamaal.app';
+// SHA-256 of the key the APK is signed with. Android checks this before opening /r/ links in the app.
+const CERTS = ['19:54:8C:92:13:5A:45:FA:EF:DE:E8:FD:B1:17:74:82:0D:07:14:D9:A8:B6:B1:49:9D:6B:97:6B:21:5E:57:6E'];
+const APK = 'https://github.com/aggarwal97kajal-lab/ludo-dhamaal/releases/latest/download/Pitara.apk';
 
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom'], v: 5 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom'], v: 6 });
     if (url.pathname === '/turn') return turn(env);
+    if (url.pathname === '/.well-known/assetlinks.json') return json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: PKG, sha256_cert_fingerprints: CERTS } }]);
+    const link = url.pathname.match(/^\/r\/([A-Za-z0-9]{5})\/?$/);
+    if (link) return invitePage(link[1].toUpperCase());
     if (url.pathname === '/new' && req.method === 'POST') {
       for (let i = 0; i < 6; i++) {
         const code = randomCode();
@@ -373,4 +380,21 @@ export class Room {
     this.all({ t: 'moved', ev, s, turnEnds: this.turnEnds });
     this.checkAway();
   }
+}
+
+// The page a room link opens when the app does not open by itself (app not installed yet).
+function invitePage(code) {
+  const intent = `intent://room/${code}#Intent;scheme=pitara;package=${PKG};end`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Join my Pitara room ${code}</title>
+<meta property="og:title" content="Join my Pitara game room ${code}"><meta property="og:description" content="Tap to play Ludo, Chess, Carrom and Snakes &amp; Ladders with me on Pitara.">
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#160D3D;color:#fff;font-family:system-ui,sans-serif;text-align:center}
+.c{padding:28px;max-width:360px}h1{font-size:44px;margin:0;color:#FFC21A;text-shadow:0 4px 0 #8a5a00}.code{font-size:40px;font-weight:800;letter-spacing:6px;background:#24145e;border:3px solid #3b2a8a;border-radius:18px;padding:10px 18px;margin:18px 0}
+a.b{display:block;margin:12px 0;padding:16px;border-radius:999px;font-weight:800;font-size:18px;text-decoration:none}.g{background:#FFC21A;color:#3a2600}.o{background:#24145e;color:#fff;border:2px solid #3b2a8a}p{color:#b9b0e8;line-height:1.5}</style></head>
+<body><div class="c"><h1>Pitara</h1><p>You are invited to a game room</p><div class="code">${code}</div>
+<a class="b g" href="${intent}">Open in Pitara</a>
+<a class="b o" href="${APK}">Download Pitara (Android)</a>
+<p>Don't have the app? Download it, install, then tap this link again. Or open Pitara, tap <b>Join a room</b> and enter <b>${code}</b>.</p></div>
+<script>setTimeout(function(){location.href=${JSON.stringify(intent)}},300)</script></body></html>`;
+  return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } });
 }
