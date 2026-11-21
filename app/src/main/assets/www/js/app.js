@@ -1159,12 +1159,14 @@ const DANCE_T0 = 0.55, DANCE_BEAT = 0.6;
 let danceRAF = null, danceClock = 0;
 function danceStage(main, others) {
   const back = others.slice(0, 3);
-  // Friends dance at the sides; with three, the third one dances behind, above the winner.
+  // Only the winner dances. The others stand at the sides, sad, with a rain cloud over their heads.
+  // (On a draw there is no winner, so both dance.)
   const spots = [[14, 112], [86, 112], [50, 250]];
   const sheet = d => `url(img/dance${ch(d.look)}-${d.tint}.webp)`;
   $('trophy').style.display = 'none';
   $('podium').innerHTML = `<div class="stage${main ? '' : ' nomain'}">
-    ${back.map((d, i) => `<div class="dancer back" style="left:${main ? spots[i][0] : [30, 70, 50][i]}%;bottom:${main ? spots[i][1] : 40}px;background-image:${sheet(d)}"></div>`).join('')}
+    ${main ? back.map((d, i) => `<div class="loser" style="left:${spots[i][0]}%;bottom:${spots[i][1] - 40}px"><span class="rain">&#127783;&#65039;</span><img src="img/c${ch(d.look)}-${d.tint}.png" alt=""></div>`).join('')
+    : back.map((d, i) => `<div class="dancer back" style="left:${[30, 70, 50][i]}%;bottom:40px;background-image:${sheet(d)}"></div>`).join('')}
     ${main ? `<div class="dancer main" style="background-image:${sheet(main)}"></div>` : ''}
     <div class="balle">Balle Balle!</div>
   </div>`;

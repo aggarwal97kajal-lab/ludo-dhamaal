@@ -305,3 +305,8 @@ img.body { display: block; width: auto; pointer-events: none; }
 .dancer.main { width: 200px; height: 280px; left: 50%; margin-left: -100px; bottom: 34px; z-index: 2; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
 .dancer.back { width: 100px; height: 140px; margin-left: -50px; z-index: 1; }
 .balle { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 3; font-weight: 800; font-size: 26px; color: #fff; background: #E0103A; border: 3px solid #fff; border-radius: 999px; padding: 0 18px; white-space: nowrap; box-shadow: 0 6px 0 rgba(0,0,0,.25); }
+.loser { position: absolute; width: 92px; margin-left: -46px; z-index: 1; display: flex; flex-direction: column; align-items: center; animation: sigh 2.6s ease-in-out infinite; transform-origin: 50% 100%; }
+.loser img { height: 165px; width: auto; filter: grayscale(.65) brightness(.75) saturate(.8); }
+.loser .rain { font-size: 34px; line-height: 1; margin-bottom: -4px; animation: rainbob 1.6s ease-in-out infinite; filter: grayscale(.3); }
+@keyframes sigh { 0%, 100% { transform: translateY(0) rotate(0deg) scaleY(1); } 50% { transform: translateY(4px) rotate(-3deg) scaleY(.96); } }
+@keyframes rainbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
