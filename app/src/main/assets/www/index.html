@@ -73,9 +73,21 @@
 <section id="history" class="screen navscreen">
   <div class="pad col gap12 full">
     <div class="row gap12"><button class="iconbtn" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2>Match History</h2></div>
-    <div class="panel statrow" id="hStats"></div>
-    <div class="chips" id="hFilters"></div>
-    <div class="col gap10" id="hList"></div>
+    <div class="hhero" id="hHero"></div>
+    <div id="hRecentWrap"><div class="sec">Recent</div><div class="recent" id="hRecent"></div></div>
+    <div><div class="sec">Your games</div><div class="col" id="hGames"></div></div>
+  </div>
+</section>
+
+<section id="hgame" class="screen navscreen">
+  <div class="hgbanner" id="hgBanner"></div>
+  <div class="pad col gap12 full hgpad">
+    <div class="row gap12"><button class="iconbtn" id="hgBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button></div>
+    <div class="hgtitle" id="hgTitle"></div>
+    <div class="tiles4" id="hgTiles"></div>
+    <div class="panel hgchart" id="hgChart"></div>
+    <div class="chips" id="hgFilters"></div>
+    <div class="col gap12" id="hgList"></div>
   </div>
 </section>
 

@@ -69,9 +69,10 @@ function show(id) {
   if (id === 'home') renderHome();
   if (id === 'gamehome') renderModes();
   if (id === 'history') renderHistory();
-  const nav = ['home', 'history'].includes(id) || (id === 'profile' && !!profile);
+  if (id === 'hgame') renderHGame();
+  const nav = ['home', 'history', 'hgame'].includes(id) || (id === 'profile' && !!profile);
   $('bnav').classList.toggle('show', nav);
-  document.querySelectorAll('#bnav [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === id));
+  document.querySelectorAll('#bnav [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === (id === 'hgame' ? 'history' : id)));
 }
 document.querySelectorAll('#bnav [data-nav]').forEach(b => b.onclick = () => {
   const to = b.dataset.nav; if (to === current) return; sfx('click');
@@ -223,7 +224,7 @@ function addHistory(h) {
   if (!G || G.recorded) return;
   G.recorded = true;
   history.unshift(Object.assign({ at: Date.now() }, h));
-  if (history.length > 120) history.length = 120;
+  if (history.length > 400) history.length = 400;
   store.set('history', history);
   (h.opp || []).forEach(o => {
     const img = o.id && G.mode === 'online' ? roomPhotos.get(o.id) : null;
@@ -235,7 +236,7 @@ function addHistory(h) {
       const keep = Object.keys(friendPhotos).filter(k => used.has(k)).sort((a, b) => friendPhotos[b].at - friendPhotos[a].at).slice(0, 40);
       friendPhotos = Object.fromEntries(keep.map(k => [k, friendPhotos[k]]));
       store.set('fphotos', friendPhotos);
-      if (current === 'history') renderHistory();
+      if (current === 'history') renderHistory(); else if (current === 'hgame') renderHGame();
     }).catch(() => {});
   });
 }
@@ -254,33 +255,103 @@ function statsHtml(st, profileView) {
     : [['gold', st.played, 'Games'], ['green', st.won, 'Wins'], ['', st.lost, 'Losses'], ['', st.best ? `<span class="${st.best === 'chess' ? 'gl' : ''}">${GAME_ICON[st.best]}</span>` : '–', st.best ? 'Best at ' + GAME_NAME[st.best].split(' ')[0] : 'Best game']];
   return four.map(x => `<div class="stat"><b class="${x[0]}">${x[1]}</b><span>${x[2]}</span></div>`).join('');
 }
-let hFilter = 'all';
 function dayLabel(t) {
   const d = new Date(t), now = new Date(), a = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   if (t >= a) return 'Today';
   if (t >= a - 864e5) return 'Yesterday';
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
-const MODE_TEXT = { online: 'online', bot: 'vs computer', local: 'pass & play' };
+const MODE_TEXT = { online: 'online', bot: 'vs computer', local: 'pass & play', solo: '' };
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)]);
+// Player level: one level for every 3 wins, with a title.
+function levelOf(won) {
+  const lv = 1 + Math.floor(won / 3), titles = [[15, 'Maharaja'], [10, 'Shahi Khiladi'], [6, 'Ustaad'], [3, 'Khiladi'], [1, 'Naya Khiladi']];
+  return { lv, title: titles.find(t => lv >= t[0])[1], left: 3 - (won % 3), frac: (won % 3) / 3 };
+}
+const GAME_GRAD = { ludo: ['#ff5a82', '#c3093f', '#5a0020'], chess: ['#8f6bff', '#4a22d6', '#1d0a6b'], carrom: ['#ffb347', '#e06d06', '#5a1e06'], snakes: ['#3ee0a3', '#059669', '#053b2c'],
+  patta: ['#ff7a59', '#d6301b', '#5a0a06'], sudoku: ['#ffe27a', '#c99400', '#4a3300'], arrows: ['#5ad8ff', '#1479d6', '#082a6b'], draw: ['#ff8fd1', '#c2188a', '#4a0638'], helix: ['#ff8fd1', '#b02a8a', '#3a0d5a'] };
+const gname = g => GAME_NAME[g].replace(' & Ladders', '');
+const ringSvg = (pc, size, w, col) => { const r = size / 2 - w / 2 - 1, L = 2 * Math.PI * r; return `<svg viewBox="0 0 ${size} ${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="#12072e" stroke-width="${w}"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${(L * pc / 100).toFixed(1)} ${L.toFixed(1)}" transform="rotate(-90 ${size / 2} ${size / 2})"/></svg>`; };
+const secsOf = h => { if (h.secs) return h.secs; const m = /in (\d+):(\d+)/.exec(h.score || ''); return m ? +m[1] * 60 + +m[2] : null; };
+const mmss = t => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+function gameBest(g, L) {
+  const W = L.filter(h => h.result === 'won');
+  if (g === 'sudoku') { const t = W.map(secsOf).filter(Boolean); return t.length ? 'best ' + mmss(Math.min(...t)) : ''; }
+  if (g === 'ludo' || g === 'snakes' || g === 'patta' || g === 'draw') { return W.length ? `${W.length}× 1st place` : ''; }
+  if (g === 'carrom' && W.length) return 'best ' + (W[0].score || '').split(' ·')[0];
+  return W.length ? `${W.length} won` : '';
+}
 function renderHistory() {
-  $('hStats').innerHTML = statsHtml(stats(), false);
-  $('hFilters').innerHTML = [['all', 'All'], ['ludo', 'Ludo'], ['chess', 'Chess'], ['carrom', 'Carrom'], ['snakes', 'Snakes'], ['patta', 'UNO'], ['sudoku', 'Sudoku'], ['arrows', 'Arrows'], ['draw', 'Draw'], ['helix', 'Helix']].map(f => `<button class="chip ${hFilter === f[0] ? 'on' : ''}" data-f="${f[0]}">${f[1]}</button>`).join('');
-  const L = history.filter(h => hFilter === 'all' || h.game === hFilter);
-  if (!L.length) { $('hList').innerHTML = `<div class="panel hempty"><b>No games yet</b>Play a game and it will show up here.</div>`; return; }
+  const st = stats(), lv = levelOf(st.won);
+  $('hHero').innerHTML = `<div class="jl"></div><div class="med"><div class="medal">${myPhoto ? `<div class="in photo" style="background:${UI[profile.color]}"><img src="${myPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`}</div>${lv.lv >= 10 ? '<span class="crown">👑</span>' : ''}</div>
+    <div class="info"><span class="rank">${lv.title.toUpperCase()} · LV ${lv.lv}</span><div class="nm">${esc(profile.name)}</div><div class="xp"><i style="width:${lv.frac * 100}%"></i></div><div class="xpt">${lv.left} more win${lv.left > 1 ? 's' : ''} to level ${lv.lv + 1}</div></div>
+    <div class="donut">${ringSvg(st.rate, 92, 10, 'url(#g)')}<b class="goldtxt">${st.rate}%<small>WIN RATE</small></b></div>
+    <div class="chipsrow"><span class="pillA">🎮 <b>${st.played}</b> played</span><span class="pillA">🏆 <b>${st.won}</b> won</span><span class="pillA">🔥 <b>${st.streak}</b> streak</span></div>`;
+  $('hRecentWrap').style.display = history.length ? '' : 'none';
+  $('hRecent').innerHTML = history.slice(0, 6).map(h => {
+    const c = GAME_GRAD[h.game] || GAME_GRAD.ludo, won = h.result === 'won';
+    const opp = (h.opp || []).map(o => o.name), vs = opp.length ? (opp.length > 1 ? `${opp.length + 1} players` : 'vs ' + esc(opp[0])) : '';
+    return `<button class="rc" data-g="${h.game}" style="background:radial-gradient(120% 120% at 80% 20%, ${c[0]}, ${c[1]} 50%, ${c[2]})"><span class="res ${won ? 'w' : 'l'}">${won ? 'WON' : h.result === 'draw' ? 'DRAW' : 'LOST'}</span><span class="ic">${GAME_ICON[h.game]}</span><b>${gname(h.game)}</b><span>${esc((h.score || '').split(' ·')[0]) || vs}</span><span>${new Date(h.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span></button>`;
+  }).join('');
+  const by = {}; history.forEach(h => { (by[h.game] = by[h.game] || []).push(h); });
+  const games = Object.keys(by).sort((a, b) => by[b].length - by[a].length);
+  if (!games.length) { $('hGames').innerHTML = `<div class="panel hempty"><b>No games yet</b>Play a game and it will show up here.</div>`; return; }
+  $('hGames').innerHTML = games.map((g, k) => {
+    const L = by[g], w = L.filter(h => h.result === 'won').length, pc = Math.round(w / L.length * 100), c = GAME_GRAD[g];
+    const best = gameBest(g, L), spark = L.slice(0, 10).reverse().map(h => `<i class="${h.result === 'won' ? 'w' : 'l'}"></i>`).join('');
+    return `<button class="gc" data-g="${g}" style="--c1:${c[1]}cc"><div class="gbadge ${g}">${GAME_ICON[g]}</div><div class="grow minw0"><div class="t">${gname(g)}${k === 0 && games.length > 1 ? ' <span class="fav">★ FAVOURITE</span>' : ''}</div>
+      <div class="s">${L.length} played · ${w} won${best ? ' · ' + best : ''}</div><div class="spark">${spark}</div></div>
+      <div class="ring">${ringSvg(pc, 58, 7, pc >= 50 ? '#5dffa8' : '#ffd34d')}<b>${pc}%</b></div><span class="chev">›</span></button>`;
+  }).join('');
+}
+$('history').addEventListener('click', e => { const b = e.target.closest('[data-g]'); if (b) { sfx('click'); openHGame(b.dataset.g); } });
+// One game's history
+let hgGame = 'ludo', hgFilter = 'all', hgShow = 12;
+function openHGame(g) { hgGame = g; hgFilter = 'all'; hgShow = 12; show('hgame'); }
+function hgFiltersFor(g, L) {
+  const f = [['all', 'All'], ['won', 'Won'], ['lost', 'Lost']];
+  if (g === 'sudoku') ['Easy', 'Medium', 'Hard', 'Expert'].forEach(x => { if (L.some(h => (h.score || '').startsWith(x))) f.push([x, x]); });
+  if (g === 'sudoku' && L.some(h => h.daily)) f.push(['daily', 'Daily']);
+  if (g === 'carrom') ['Free Style', 'Disc Pool'].forEach(x => { if (L.some(h => (h.score || '').includes(x))) f.push([x, x]); });
+  if (L.some(h => h.mode === 'online') && L.some(h => h.mode !== 'online')) f.push(['online', 'Online']);
+  return f;
+}
+function renderHGame() {
+  const g = hgGame, L = history.filter(h => h.game === g), c = GAME_GRAD[g];
+  const w = L.filter(h => h.result === 'won').length, pc = L.length ? Math.round(w / L.length * 100) : 0;
+  $('hgBanner').style.background = `radial-gradient(90% 80% at 75% 20%, ${c[0]}, ${c[1]} 40%, ${c[2]} 85%)`;
+  $('hgBanner').innerHTML = `<div class="jaali"></div><span class="big">${GAME_ICON[g]}</span><div class="fade"></div>`;
+  $('hgTitle').innerHTML = `<b class="goldtxt">${gname(g)}</b><span>Your history · ${L.length} game${L.length === 1 ? '' : 's'}</span>`;
+  let t3 = ['', ''], t4 = ['', ''];
+  if (g === 'sudoku') { const t = L.filter(h => h.result === 'won').map(secsOf).filter(Boolean); t3 = [t.length ? mmss(Math.min(...t)) : '–', 'Best time']; t4 = [t.length ? mmss(Math.round(t.reduce((a, b) => a + b, 0) / t.length)) : '–', 'Average']; }
+  else { let s = 0; for (const h of L) { if (h.result === 'won') s++; else break; } t3 = [pc + '%', 'Win rate']; t4 = [(s ? '🔥' : '') + s, 'Streak']; }
+  $('hgTiles').innerHTML = [[L.length, 'Played', 'goldtxt'], [w, 'Won', 'green'], [t3[0], t3[1], ''], [t4[0], t4[1], '']].map(x => `<div class="tile2"><b class="${x[2]}">${x[0]}</b><span>${x[1]}</span></div>`).join('');
+  // Last 7 days
+  const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+  const days = Array.from({ length: 7 }, (_, k) => { const a = day0.getTime() - (6 - k) * 864e5, b = a + 864e5, D = L.filter(h => h.at >= a && h.at < b); return { w: D.filter(h => h.result === 'won').length, l: D.filter(h => h.result !== 'won').length, d: k === 6 ? 'Today' : new Date(a).toLocaleDateString(undefined, { weekday: 'short' }) }; });
+  const mx = Math.max(1, ...days.map(d => d.w + d.l));
+  $('hgChart').innerHTML = `<div class="ch"><span>Last 7 days</span><span class="lg"><i class="w"></i>won <i class="l"></i>lost</span></div><div class="bars">${days.map(d => `<div><div class="st" style="height:${(d.w + d.l) / mx * 60}px"><i class="w" style="flex:${d.w}"></i><i class="l" style="flex:${d.l}"></i></div><small>${d.d}</small></div>`).join('')}</div>`;
+  $('hgFilters').innerHTML = hgFiltersFor(g, L).map(f => `<button class="chip ${hgFilter === f[0] ? 'on' : ''}" data-hf="${f[0]}">${f[1]}</button>`).join('');
+  const F = L.filter(h => hgFilter === 'all' || (hgFilter === 'won' ? h.result === 'won' : hgFilter === 'lost' ? h.result !== 'won' : hgFilter === 'daily' ? h.daily : hgFilter === 'online' ? h.mode === 'online' : (h.score || '').includes(hgFilter)));
+  if (!F.length) { $('hgList').innerHTML = `<div class="panel hempty"><b>Nothing here</b>No games match this filter.</div>`; return; }
+  const bestT = g === 'sudoku' ? Math.min(...L.filter(h => h.result === 'won').map(secsOf).filter(Boolean)) : null;
   const groups = [];
-  L.forEach(h => { const k = dayLabel(h.at); let g = groups[groups.length - 1]; if (!g || g.k !== k) groups.push(g = { k, list: [] }); g.list.push(h); });
-  $('hList').innerHTML = groups.map(g => `<div class="hday">${g.k}</div><div class="panel hgroup" style="padding:0">${g.list.map(h => {
-    const rib = h.result === 'won' ? '<span class="rib w">WON</span>' : h.result === 'draw' ? '<span class="rib d">DRAW</span>' : `<span class="rib l">${h.rank && h.of > 2 ? ordinal(h.rank) + ' place' : 'LOST'}</span>`;
-    const opp = (h.opp || []).map(o => o.name);
+  F.slice(0, hgShow).forEach(h => { const k = dayLabel(h.at); let gr = groups[groups.length - 1]; if (!gr || gr.k !== k) groups.push(gr = { k, list: [] }); gr.list.push(h); });
+  $('hgList').innerHTML = groups.map(gr => `<div><div class="sec">${gr.k}</div><div class="panel" style="padding:0">${gr.list.map(h => {
+    const won = h.result === 'won', opp = (h.opp || []).map(o => o.name);
     const vs = opp.length ? (opp.length > 2 ? `${opp.length + 1} players` : 'vs ' + opp.map(esc).join(', ')) : '';
     const time = new Date(h.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-    const parts = [h.score ? esc(h.score) : '', vs, MODE_TEXT[h.mode] || '', time].filter(Boolean);
-    return `<div class="hitem"><div class="gbadge ${h.game}">${GAME_ICON[h.game] || '🎲'}</div><div class="grow minw0"><div class="t">${GAME_NAME[h.game].replace(' & Ladders', '')} ${rib}</div><div class="s">${parts.join(', ')}</div></div>
+    const rib = won ? '' : h.rank && h.of > 2 ? ordinal(h.rank) + ' place' : h.result === 'draw' ? 'Draw' : 'Lost';
+    const parts = [vs, MODE_TEXT[h.mode] || '', time].filter(Boolean).join(' · ');
+    const nb = g === 'sudoku' && won && secsOf(h) === bestT;
+    return `<div class="mrow ${won ? 'w' : 'l'}"><div class="grow minw0"><div class="t">${esc((h.score || gname(g)).split(' ·')[0])}${h.daily ? ' · Daily 🏆' : ''}${nb ? ' <span class="newbest">BEST</span>' : ''}</div><div class="s">${parts}</div></div>
+      <div class="tm"><b class="${won ? 'goldtxt' : 'lost'}">${won ? 'WON' : rib}</b></div>
       <div class="minis">${(h.opp || []).slice(0, 3).map(o => { const fp = o.id && friendPhotos[o.id]; return `<div class="mini" style="background:${UI[o.tint || 0]}"><img src="${fp ? fp.img : face(o.look, o.tint || 0)}" alt=""${fp ? ' style="object-position:center"' : ''}></div>`; }).join('')}</div></div>`;
-  }).join('')}</div>`).join('');
+  }).join('')}</div></div>`).join('') + (F.length > hgShow ? `<button class="panel more" id="hgMore">Show ${Math.min(20, F.length - hgShow)} more ›</button>` : '');
 }
-$('hFilters').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) { hFilter = b.dataset.f; sfx('click'); renderHistory(); } });
+$('hgFilters').addEventListener('click', e => { const b = e.target.closest('[data-hf]'); if (b) { hgFilter = b.dataset.hf; hgShow = 12; sfx('click'); renderHGame(); } });
+$('hgList').addEventListener('click', e => { if (e.target.closest('#hgMore')) { hgShow += 20; sfx('click'); renderHGame(); } });
+$('hgBack').onclick = () => { sfx('click'); show('history'); };
 
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
@@ -1910,7 +1981,7 @@ function sudokuSolved() {
   const sd = G.sd, t = Math.floor(sd.time / 1000), tt = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
   if (G.mode === 'online') { G.net.send({ t: 'sdone', grid: sd.cur }); return; }
   store.set('sudoku', null);
-  addHistory({ game: 'sudoku', mode: 'solo', result: 'won', of: 1, score: `${SD_NAME[sd.level]} in ${tt}${sd.mistakes ? ` · ${sd.mistakes} mistake${sd.mistakes > 1 ? 's' : ''}` : ''}`, daily: G.daily || undefined, opp: [] });
+  addHistory({ game: 'sudoku', mode: 'solo', result: 'won', of: 1, secs: t, score: `${SD_NAME[sd.level]} in ${tt}${sd.mistakes ? ` · ${sd.mistakes} mistake${sd.mistakes > 1 ? 's' : ''}` : ''}`, daily: G.daily || undefined, opp: [] });
   $('winTitle').textContent = 'Solved!';
   $('winSub').textContent = `${G.daily ? 'Daily puzzle' : SD_NAME[sd.level] + ' puzzle'} in ${tt}${sd.mistakes ? '' : ' with no mistakes'}`;
   danceStage({ look: profile.look, tint: profile.color, name: profile.name }, []);
