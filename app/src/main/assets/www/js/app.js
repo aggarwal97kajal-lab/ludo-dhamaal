@@ -90,7 +90,7 @@ function show(id) {
 }
 document.querySelectorAll('#bnav [data-nav]').forEach(b => b.onclick = () => {
   const to = b.dataset.nav; if (to === current) return; sfx('click');
-  if (to === 'profile') openProfile(); else show(to);
+  if (to === 'profile') { if (current !== 'profile') openProfile(); } else show(to);
 });
 function modal(html) { $('modalBox').innerHTML = html; $('modal').classList.add('show'); }
 function closeModal() { $('modal').classList.remove('show'); }
@@ -179,7 +179,7 @@ function askPhoto(from) {
 }
 window.ldPhoto = data => {
   if (!data) return;
-  openCrop(data, d => { pfPhoto = d; renderProfile(); sfx('pop'); });
+  openCrop(data, d => { pfPhoto = d; applyPhotoNow(); renderProfile(); sfx('pop'); });
 };
 $('pfFile').addEventListener('change', e => {
   const file = e.target.files && e.target.files[0]; if (!file) return;
@@ -200,7 +200,7 @@ function squarePhoto(src, size) {
 }
 $('pfPhotoBtns').addEventListener('click', e => {
   const b = e.target.closest('[data-ph]'); if (!b) return; sfx('click');
-  if (b.dataset.ph === 'cartoon') { pfPhoto = null; renderProfile(); return; }
+  if (b.dataset.ph === 'cartoon') { pfPhoto = null; applyPhotoNow(); renderProfile(); return; }
   askPhoto(b.dataset.ph);
 });
 $('pfCam').onclick = () => {
@@ -208,7 +208,7 @@ $('pfCam').onclick = () => {
   modal(`<h3>Change photo</h3><div class="grid3"><button class="pbtn" id="mCam"><span>📷</span>Camera</button><button class="pbtn" id="mGal"><span>🖼️</span>Gallery</button><button class="pbtn" id="mCart"><span>🙂</span>Cartoon</button></div><button class="btn ghost" id="mNo">Cancel</button>`);
   $('mCam').onclick = () => { closeModal(); askPhoto('camera'); };
   $('mGal').onclick = () => { closeModal(); askPhoto('gallery'); };
-  $('mCart').onclick = () => { closeModal(); pfPhoto = null; renderProfile(); };
+  $('mCart').onclick = () => { closeModal(); pfPhoto = null; applyPhotoNow(); renderProfile(); };
   $('mNo').onclick = closeModal;
 };
 $('pfSave').onclick = () => {
@@ -4215,4 +4215,11 @@ function savePhoto() {
   try { put(myPhoto); return; } catch (e) { /* storage full */ }
   try { localStorage.removeItem('ld:hubcache'); put(myPhoto); return; } catch (e) { /* still full */ }
   squarePhoto(myPhoto, 256).then(d => { myPhoto = d; try { put(d); } catch (e) { toast('Phone storage is full: photo kept until you close the app', '#E0103A'); } renderHome(); }).catch(() => {});
+}
+
+// A new photo is kept straight away (no need to press "Save profile" for it).
+function applyPhotoNow() {
+  if (!profile || pfPhoto === myPhoto) return;
+  myPhoto = pfPhoto; savePhoto(); sendMyPhoto(); hubPhotoSent = false;
+  toast(myPhoto ? 'Photo saved ✓' : 'Cartoon picture saved ✓', '#1E9E5A');
 }
