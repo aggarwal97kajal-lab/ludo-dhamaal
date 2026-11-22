@@ -25,6 +25,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
     if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'], viewers: true, v: 10 });
     if (url.pathname === '/turn') return turn(env);
+    if (url.pathname === '/download') return Response.redirect(APK, 302);
     if (url.pathname === '/.well-known/assetlinks.json') return json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: PKG, sha256_cert_fingerprints: CERTS } }]);
     const link = url.pathname.match(/^\/r\/([A-Za-z0-9]{5})\/?$/);
     if (link) return invitePage(link[1].toUpperCase());
