@@ -43,8 +43,15 @@ class MainActivity : AppCompatActivity() {
     private var pendingRoom: String? = null
 
     // ---------- Profile photo (stays on this phone; the game keeps it in its own storage) ----------
-    private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
-        if (bmp != null) sendPhoto(bmp) else photoDone(null)
+    // Camera: a full-size picture saved in the app's cache (the small preview photo looked blurry when cropped).
+    private var camUri: Uri? = null
+    private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val u = camUri
+        if (!ok || u == null) { photoDone(null); return@registerForActivityResult }
+        Thread {
+            val bmp = try { loadScaled(u) } catch (e: Exception) { null }
+            runOnUiThread { if (bmp != null) sendPhoto(bmp) else photoDone(null) }
+        }.start()
     }
     private val galleryPick = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) { photoDone(null); return@registerForActivityResult }
@@ -59,7 +66,7 @@ class MainActivity : AppCompatActivity() {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         var sample = 1
-        while (bounds.outWidth / (sample * 2) >= 512 && bounds.outHeight / (sample * 2) >= 512) sample *= 2
+        while (bounds.outWidth / (sample * 2) >= 1280 && bounds.outHeight / (sample * 2) >= 1280) sample *= 2
         val bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) } ?: return null
         val rot = try {
             contentResolver.openInputStream(uri)?.use {
@@ -75,14 +82,13 @@ class MainActivity : AppCompatActivity() {
         return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, Matrix().apply { postRotate(rot) }, true)
     }
 
-    // Cuts a square from the middle, makes it 256 x 256 and gives it to the game.
+    // Sends the whole picture (longest side at most 1280) to the game, where you crop it yourself.
     private fun sendPhoto(src: Bitmap) {
         try {
-            val side = minOf(src.width, src.height)
-            val sq = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
-            val small = Bitmap.createScaledBitmap(sq, 256, 256, true)
+            val k = minOf(1f, 1280f / maxOf(src.width, src.height))
+            val small = if (k < 1f) Bitmap.createScaledBitmap(src, (src.width * k).toInt(), (src.height * k).toInt(), true) else src
             val out = ByteArrayOutputStream()
-            small.compress(Bitmap.CompressFormat.JPEG, 82, out)
+            small.compress(Bitmap.CompressFormat.JPEG, 88, out)
             photoDone("data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP))
         } catch (e: Exception) { photoDone(null) }
     }
@@ -265,7 +271,12 @@ class MainActivity : AppCompatActivity() {
         fun pickPhoto(from: String) {
             runOnUiThread {
                 try {
-                    if (from == "camera") takePhoto.launch(null) else galleryPick.launch("image/*")
+                    if (from == "camera") {
+                        val dir = java.io.File(cacheDir, "photo").apply { mkdirs() }
+                        val f = java.io.File(dir, "camera.jpg")
+                        camUri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.share", f)
+                        takePhoto.launch(camUri)
+                    } else galleryPick.launch("image/*")
                 } catch (e: Exception) { photoDone(null) }
             }
         }

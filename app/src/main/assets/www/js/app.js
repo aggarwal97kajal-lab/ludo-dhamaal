@@ -219,7 +219,7 @@ $('pfSave').onclick = () => {
   store.set('profile', profile);
   if (pfPhoto !== myPhoto) {
     myPhoto = pfPhoto;
-    try { if (myPhoto) localStorage.setItem('ld:photo', JSON.stringify(myPhoto)); else localStorage.removeItem('ld:photo'); } catch (e) { toast('Photo too big to save', '#E0103A'); }
+    savePhoto();
     sendMyPhoto();
   }
   sfx('pop'); show('home'); if (first) takeLinkRoom(); else toast('Profile saved', '#3A2490');
@@ -3757,7 +3757,9 @@ function openCrop(src, done) {
   const area = $('crArea'), cv = $('crCv'), bx = $('crBox'), pv = $('crPrev');
   let work = document.createElement('canvas');
   const layout = () => {
-    const W = area.clientWidth, H = area.clientHeight, k = Math.min(W / work.width, H / work.height);
+    const W = area.clientWidth, H = area.clientHeight;
+    // Never blow a small picture up more than 1.5x: that is what made it look blurry.
+    const k = Math.min(W / work.width, H / work.height, 1.5);
     fit = { x: (W - work.width * k) / 2, y: (H - work.height * k) / 2, w: work.width * k, h: work.height * k, k };
     cv.width = W * 2; cv.height = H * 2; cv.style.width = W + 'px'; cv.style.height = H + 'px';
     const c = cv.getContext('2d'); c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, W, H); c.drawImage(work, fit.x, fit.y, fit.w, fit.h);
@@ -3774,8 +3776,19 @@ function openCrop(src, done) {
     c.drawImage(work, sx + (sw - s2) / 2, sy + (sh - s2) / 2, s2, s2, 0, 0, 128, 128);
   };
   const setWork = (fn) => { const n = document.createElement('canvas'); fn(n); work = n; layout(); resetBox(); };
-  img.onload = () => setWork(n => { const max = 1400, k = Math.min(1, max / Math.max(img.width, img.height)); n.width = img.width * k; n.height = img.height * k; n.getContext('2d').drawImage(img, 0, 0, n.width, n.height); });
+  // The phone may still be coming back from the camera/gallery: wait until the crop area has a size.
+  const ready = f => { if (area.clientWidth > 50 && area.clientHeight > 50) f(); else requestAnimationFrame(() => ready(f)); };
+  img.onload = () => ready(() => setWork(n => { const max = 1400, k = Math.min(1, max / Math.max(img.width, img.height)); n.width = img.width * k; n.height = img.height * k; n.getContext('2d').drawImage(img, 0, 0, n.width, n.height); }));
   img.src = src;
+  // Screen size changes (system bars come back): keep the same crop, just redraw it.
+  let lastW = 0, lastH = 0;
+  const ro = new ResizeObserver(() => {
+    if (!fit || !box || (area.clientWidth === lastW && area.clientHeight === lastH)) return;
+    const rel = { x: (box.x - fit.x) / fit.w, y: (box.y - fit.y) / fit.h, w: box.w / fit.w, h: box.h / fit.h };
+    lastW = area.clientWidth; lastH = area.clientHeight; layout();
+    box = { x: fit.x + rel.x * fit.w, y: fit.y + rel.y * fit.h, w: rel.w * fit.w, h: rel.h * fit.h }; clamp(); draw();
+  });
+  ro.observe(area);
   // Dragging: inside the box moves it, corners and edges resize it.
   let drag = null;
   bx.addEventListener('pointerdown', e => { e.preventDefault(); bx.setPointerCapture(e.pointerId); drag = { h: e.target.dataset.h || 'move', x: e.clientX, y: e.clientY, b: Object.assign({}, box) }; });
@@ -3796,7 +3809,7 @@ function openCrop(src, done) {
   });
   const up = () => { drag = null; };
   bx.addEventListener('pointerup', up); bx.addEventListener('pointercancel', up);
-  const close = () => el.remove();
+  const close = () => { ro.disconnect(); el.remove(); };
   $('crNo').onclick = () => { sfx('click'); close(); };
   $('crReset').onclick = () => { sfx('click'); resetBox(); };
   $('crFree').onclick = () => { square = false; $('crFree').classList.add('on'); $('crSq').classList.remove('on'); sfx('click'); };
@@ -3804,12 +3817,16 @@ function openCrop(src, done) {
   $('crRot').onclick = () => { sfx('click'); const o = work; setWork(n => { n.width = o.height; n.height = o.width; const c = n.getContext('2d'); c.translate(n.width, 0); c.rotate(Math.PI / 2); c.drawImage(o, 0, 0); }); };
   $('crFlip').onclick = () => { sfx('click'); const o = work; setWork(n => { n.width = o.width; n.height = o.height; const c = n.getContext('2d'); c.translate(n.width, 0); c.scale(-1, 1); c.drawImage(o, 0, 0); }); };
   $('crOk').onclick = () => {
-    const sx = (box.x - fit.x) / fit.k, sy = (box.y - fit.y) / fit.k, sw = box.w / fit.k, sh = box.h / fit.k;
-    const k = Math.min(1, 360 / Math.max(sw, sh)), o = document.createElement('canvas'); o.width = Math.round(sw * k); o.height = Math.round(sh * k);
-    o.getContext('2d').drawImage(work, sx, sy, sw, sh, 0, 0, o.width, o.height);
-    close(); done(o.toDataURL('image/jpeg', 0.85));
+    let url = null;
+    try {
+      const sx = Math.max(0, (box.x - fit.x) / fit.k), sy = Math.max(0, (box.y - fit.y) / fit.k), sw = Math.min(work.width - sx, box.w / fit.k), sh = Math.min(work.height - sy, box.h / fit.k);
+      const k = Math.min(1, 480 / Math.max(sw, sh)), o = document.createElement('canvas'); o.width = Math.max(1, Math.round(sw * k)); o.height = Math.max(1, Math.round(sh * k));
+      o.getContext('2d').drawImage(work, sx, sy, sw, sh, 0, 0, o.width, o.height);
+      url = o.toDataURL('image/jpeg', 0.86);
+    } catch (e) { url = null; }
+    close();
+    if (url && url.length > 100) done(url); else squarePhoto(src, 320).then(done).catch(() => toast('Could not use this photo. Try another one.', '#E0103A'));
   };
-  addEventListener('resize', () => { if (el.isConnected) { layout(); resetBox(); } }, { once: true });
 }
 
 // ---------- Game screen banner ----------
@@ -4190,3 +4207,12 @@ function finishArchery() {
 $('aqBack').onclick = () => leaveGame();
 $('aqSound').onclick = () => $('gameSound').onclick();
 $('aqChat').onclick = () => { sfx('click'); openChat(); };
+
+// Keeps your photo on this phone. If the phone's storage for the app is full, clear old caches and try a smaller copy.
+function savePhoto() {
+  const put = v => { localStorage.setItem('ld:photo', JSON.stringify(v)); };
+  if (!myPhoto) { localStorage.removeItem('ld:photo'); return; }
+  try { put(myPhoto); return; } catch (e) { /* storage full */ }
+  try { localStorage.removeItem('ld:hubcache'); put(myPhoto); return; } catch (e) { /* still full */ }
+  squarePhoto(myPhoto, 256).then(d => { myPhoto = d; try { put(d); } catch (e) { toast('Phone storage is full: photo kept until you close the app', '#E0103A'); } renderHome(); }).catch(() => {});
+}
