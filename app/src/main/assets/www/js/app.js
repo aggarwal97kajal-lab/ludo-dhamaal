@@ -17,6 +17,7 @@ import { Helix3D } from './helix3d.js';
 import { makePuzzle, dailySeed, peers as sdPeers, LEVELS as SD_LEVELS, LEVEL_NAME as SD_NAME, MAX_MISTAKES as SD_MAX } from './sudoku.js';
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaBot, playable as pattaPlayable, canPlay as pattaCanPlay, top as pattaTop, label as pattaLabel, ranking as pattaRanking, COLORS as PCOLORS } from './patta.js';
 import { PUZZLES } from './puzzles.js';
+import { setLang, LANGS } from './lang.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
 
 const $ = id => document.getElementById(id);
@@ -76,7 +77,7 @@ function show(id) {
   if (id === 'daily') renderDaily();
   if (id === 'shop') renderShop();
   if (id === 'badges') renderBadges();
-  if (id === 'friends') { renderFriends(); hubPing(); $('navFriendsDot').classList.remove('show'); }
+  if (id === 'friends') { if (window.LDNative && window.LDNative.askNotify && !store.get('askedNotify', false)) { store.set('askedNotify', true); window.LDNative.askNotify(); } renderFriends(); hubPing(); $('navFriendsDot').classList.remove('show'); }
   if (id === 'win') winExtras();
   if (id === 'home') { renderCoins(); setDailyDot(); }
   updateVStrip();
@@ -2658,7 +2659,23 @@ $('joinGo').onclick = () => {
 };
 $('joinCode').addEventListener('input', () => { $('joinErr').textContent = ''; });
 
+// "Your turn" on the phone when Pitara is in the background during an online game.
+function myOnlineTurn() {
+  const s = G && G.s; if (!s || s.over || G.viewer) return false;
+  try {
+    if (s.game === 'chess') return chessPlayer(s, s.turn).id === pid;
+    if (s.game === 'carrom' || s.game === 'patta') return s.players[s.turn].id === pid;
+    if (['sudoku', 'arrows', 'draw', 'helix'].includes(s.game)) return s.game === 'draw' && s.players[s.drawer] && s.players[s.drawer].id === pid && s.phase === 'choose';
+    return playerOf(s, s.turn).id === pid;
+  } catch (e) { return false; }
+}
+function turnAlert() {
+  if (!document.hidden || !G || G.mode !== 'online' || !window.LDNative || !window.LDNative.notify) return;
+  const k = G.s ? G.s.game + ':' + G.s.seq : '';
+  if (myOnlineTurn() && G.alerted !== k) { G.alerted = k; window.LDNative.notify('Your turn! 🎲', `${GAME_NAME[G.s.game || 'ludo'] || 'Pitara'} · Room ${G.code}`, 'turn'); }
+}
 function openRoom(code) {
+  if (window.LDNative && window.LDNative.askNotify && !store.get('askedNotify', false)) { store.set('askedNotify', true); window.LDNative.askNotify(); }
   if (G && G.net) endOnline();
   G = { mode: 'online', game: GAME, code, lobby: [], host: false, s: null, busy: false, speaking: new Set(), q: Promise.resolve(), chat: [], unread: 0 };
   store.set('room', { code, game: GAME, at: Date.now() });
@@ -2671,7 +2688,7 @@ function openRoom(code) {
       if (m.t === 'rtc') { if (g.voice) g.voice.signal(m.from, m.data).catch(() => {}); return; }
       // A full resync replaces whatever was still waiting, so a stuck animation can't block the game.
       if (m.t === 'sync') { board && board.clearHighlight(); stopDiceSpin(); g.q = Promise.resolve(); }
-      g.q = g.q.then(() => onNet(m)).catch(err => console.error(err));
+      g.q = g.q.then(() => onNet(m)).then(turnAlert).catch(err => console.error(err));
     },
     status: st => { if (st !== 'online' && G) G.wasOffline = true; setNetState(st); if (st === 'online') setTimeout(sendMyPhoto, 50); }
   });
@@ -3392,6 +3409,7 @@ function renderBadges() {
 function rewardGame(h) {
   const won = h.result === 'won', n = won ? (h.mode === 'online' ? 30 : 20) : 5;
   hubCall('result', { won }).catch(() => {});
+  if (G && G.tour && h.mode === 'online' && hub.me) { const opp = (G.lobby || []).find(p => p.pid !== pid); const w = won ? hub.me.code : opp && opp.fc; if (w) hubCall('tour/result', { id: G.tour, winner: w }).then(r => { if (r && r.tour) { hub.tours = hub.tours.filter(x => x.id !== r.tour.id).concat(r.tour); if (r.tour.champ === hub.me.code) setTimeout(() => toast('🏆 You are the tournament champion!', '#8a5600'), 2500); } }).catch(() => {}); }
   // Playing online together once makes you friends.
   if (h.mode === 'online' && G && G.lobby) G.lobby.forEach(p => { if (p.fc && p.pid !== pid && hub.me && !hub.friends.some(f => f.code === p.fc)) hubCall('add', { code: p.fc }).then(() => hubPing()).catch(() => {}); });
   eco.lastEarn = { n, at: Date.now(), won, h };
@@ -3516,7 +3534,7 @@ function puzzleSolved() {
 // ---------- Friends (friend code, online, invites, this week) ----------
 let hubKey = store.get('hubkey', null);
 if (!hubKey) { const b = new Uint8Array(18); crypto.getRandomValues(b); hubKey = Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); store.set('hubkey', hubKey); }
-const hub = Object.assign({ me: null, friends: [], seenInv: {} }, store.get('hubcache', {}));
+const hub = Object.assign({ me: null, friends: [], tours: [], seenInv: {} }, store.get('hubcache', {}));
 let frTab = 'list', hubPhotoSent = false;
 async function hubCall(path, body) {
   const base = Net.serverBase(); if (!base) throw new Error('offline');
@@ -3536,7 +3554,7 @@ async function hubPing() {
     const r = await hubCall('hello', body);
     if (!r || !r.me) return;
     hubPhotoSent = true;
-    hub.me = r.me; hub.friends = r.friends || [];
+    hub.me = r.me; hub.friends = r.friends || []; hub.tours = r.tours || [];
     store.set('hubcache', { me: hub.me, friends: hub.friends });
     (r.inbox || []).forEach(gotInvite);
     if (current === 'friends') renderFriends();
@@ -3559,6 +3577,7 @@ function renderFriends() {
   document.querySelectorAll('#frTabs [data-ft]').forEach(b => b.classList.toggle('on', b.dataset.ft === frTab));
   const code = hub.me ? hub.me.code : '······';
   if (frTab === 'week') return renderWeek();
+  if (frTab === 'tour') return renderTours();
   const on = hub.friends.filter(f => f.online), off = hub.friends.filter(f => !f.online);
   const inRoom = myRoomInfo();
   const row = f => `<div class="frow ${f.online ? '' : 'off'}"><div class="favw">${friendAv(f)}${f.online ? '<i class="ondot"></i>' : ''}</div>
@@ -3605,24 +3624,25 @@ async function sendInvite(code, btn) {
   try { await hubCall('invite', { to: code, room: r && r.open ? r.code : null, game: r ? r.game : GAME }); sfx('pop'); if (btn) { btn.textContent = 'Sent ✓'; btn.disabled = true; } toast(r && r.open ? 'Invite sent' : 'Ping sent: they’ll see you want to play', '#1E9E5A'); }
   catch (e) { toast('No internet. Try again.', '#E0103A'); }
 }
-function joinFriendRoom(code, game) {
+function joinFriendRoom(code, game, tour) {
   if (game && GAME_NAME[game]) { GAME = game; store.set('game', GAME); }
   if (!netReady()) return;
   openRoom(code);
+  if (tour) G.tour = tour;
 }
 // An invite arrives: show it (or a phone notification if Pitara is in the background).
 function gotInvite(iv) {
   const key = iv.from + (iv.room || '') + iv.at; if (hub.seenInv[key]) return; hub.seenInv[key] = 1;
   const what = iv.room ? `${GAME_NAME[iv.game] || 'a game'} room` : 'a game';
-  const title = iv.room ? `${iv.name} invited you` : `${iv.name} wants to play!`;
+  const title = iv.tour && !iv.room ? `${iv.name} started a tournament!` : iv.tour ? `${iv.name}: your tournament match` : iv.room ? `${iv.name} invited you` : `${iv.name} wants to play!`;
   if (document.hidden && window.LDNative && window.LDNative.notify) { window.LDNative.notify(title, iv.room ? `Tap to join the ${what}` : 'Open Pitara and play together', iv.room ? 'room:' + iv.room : ''); return; }
   sfx('turn'); buzz([60, 40, 60]);
   $('navFriendsDot').textContent = '!'; $('navFriendsDot').classList.add('show');
   if (G && (PLAY_SCREENS.includes(current) || current === 'lobby')) { toast(`${title} · ${what}`, '#8a5600'); return; }
-  modal(`<div class="sheethead">🎮</div><h3>${esc(title)}</h3><p>${iv.room ? `Join their ${esc(what)} now?` : 'Open a room and invite them, or say hi.'}</p>
+  modal(`<div class="sheethead">🎮</div><h3>${esc(title)}</h3><p>${iv.room ? `Join their ${esc(what)} now?` : iv.tour ? `A ${esc(GAME_NAME[iv.game] || '')} knockout. See your match in Friends → Tournament.` : 'Open a room and invite them, or say hi.'}</p>
     ${iv.room ? '<button class="btn gold" id="mOk">Join</button>' : '<button class="btn gold" id="mOk">Open Friends</button>'}<button class="btn ghost" id="mNo">Later</button>`);
   $('mNo').onclick = closeModal;
-  $('mOk').onclick = () => { closeModal(); if (iv.room) joinFriendRoom(iv.room, iv.game); else show('friends'); };
+  $('mOk').onclick = () => { closeModal(); if (iv.room) joinFriendRoom(iv.room, iv.game, iv.tour); else { if (iv.tour) frTab = 'tour'; show('friends'); } };
 }
 // Invite from the room
 $('lobbyInvite').onclick = () => {
@@ -3633,3 +3653,68 @@ $('lobbyInvite').onclick = () => {
   $('mOk').onclick = closeModal;
   $('modalBox').querySelectorAll('[data-inv2]').forEach(b => b.onclick = () => sendInvite(b.dataset.inv2, b));
 };
+
+// ---------- Language ----------
+function renderLangPick() { $('setLang').innerHTML = LANGS.map(l => `<button class="lvlbtn ${(settings.lang || 'en') === l[0] ? 'on' : ''}" data-lang="${l[0]}">${l[1]}</button>`).join(''); }
+renderLangPick();
+$('setLang').addEventListener('click', e => {
+  const b = e.target.closest('[data-lang]'); if (!b || b.dataset.lang === (settings.lang || 'en')) return;
+  settings.lang = b.dataset.lang; store.set('settings', settings); sfx('click');
+  location.reload();
+});
+setLang(settings.lang || 'en');
+
+// ---------- Friends tournament (knockout) ----------
+const TOUR_GAMES = ['chess', 'carrom', 'ludo', 'patta', 'snakes'];
+const tName = (t, c) => { if (hub.me && c === hub.me.code) return 'You'; const p = t.players.find(x => x.code === c); return p ? p.name : '?'; };
+const roundName = (n, i) => (n - i === 1 ? 'Final' : n - i === 2 ? 'Semi-finals' : 'Quarter-finals');
+function myMatch(t) { if (!hub.me || t.champ) return null; const r = t.rounds[t.rounds.length - 1]; return r.find(m => !m.w && (m.a === hub.me.code || m.b === hub.me.code)) || null; }
+function renderTours() {
+  const T = (hub.tours || []).slice().reverse();
+  const total = t => Math.log2(t.players.length);
+  $('frBody').innerHTML = `<button class="btn gold" id="tNew">🏆 Start a tournament</button>
+    ${T.length ? '' : '<div class="panel empty"><b>No tournament yet</b><small>Pick 3 or 7 friends and a game. Winners go to the next round until one champion is left.</small></div>'}
+    ${T.map(t => {
+      const n = total(t), m = myMatch(t), opp = m ? (m.a === hub.me.code ? m.b : m.a) : null, of = opp ? hub.friends.find(f => f.code === opp) : null;
+      const rounds = [];
+      for (let i = 0; i < n; i++) { const r = t.rounds[i] || Array(t.players.length / 2 ** (i + 1)).fill(null); rounds.push(r); }
+      return `<div class="panel tour"><div class="row between"><b class="ttl">${GAME_NAME[t.game]} tournament</b><small class="muted">${t.players.length} players</small></div>
+        ${t.champ ? `<div class="champ"><span>🏆</span><b>${esc(tName(t, t.champ))}</b><small>Champion</small></div>` : ''}
+        <div class="bracket">${rounds.map((r, i) => `<div class="bcol"><small>${roundName(n, i)}</small>${r.map(x => x ? `<div class="bm"><span class="${x.w === x.a ? 'w' : x.w ? 'l' : ''}">${esc(tName(t, x.a))}</span><span class="${x.w === x.b ? 'w' : x.w ? 'l' : ''}">${esc(tName(t, x.b))}</span></div>` : '<div class="bm tbd"><span>?</span><span>?</span></div>').join('')}</div>`).join('')}</div>
+        ${m ? (m.a === hub.me.code ? `<button class="btn gold" data-tplay="${t.id}">Play your match vs ${esc(tName(t, opp))}</button>`
+          : of && of.room && of.room.open ? `<button class="btn gold" data-tjoin="${t.id}" data-room="${of.room.code}">Join ${esc(of.name)}’s room</button>`
+          : `<small class="muted center">Waiting for ${esc(tName(t, opp))} to open the room. You’ll get an invite.</small>`) : ''}
+      </div>`;
+    }).join('')}`;
+}
+$('frBody').addEventListener('click', e => {
+  if (e.target.closest('#tNew')) return newTourSheet();
+  const p = e.target.closest('[data-tplay]'); if (p) {
+    const t = hub.tours.find(x => x.id === p.dataset.tplay), m = t && myMatch(t); if (!m) return;
+    sfx('click'); GAME = t.game; store.set('game', GAME);
+    if (!netReady()) return;
+    Net.newCode().then(code => { openRoom(code); G.tour = t.id; const opp = m.a === hub.me.code ? m.b : m.a; hubCall('invite', { to: opp, room: code, game: t.game, tour: t.id }).catch(() => {}); toast('Room ready. Your opponent got an invite', '#1E9E5A'); })
+      .catch(() => toast('Could not create the room. Try again.', '#E0103A'));
+    return;
+  }
+  const j = e.target.closest('[data-tjoin]'); if (j) { sfx('click'); const t = hub.tours.find(x => x.id === j.dataset.tjoin); joinFriendRoom(j.dataset.room, t && t.game, t && t.id); }
+});
+function newTourSheet() {
+  sfx('click');
+  if (hub.friends.length < 3) { modal('<h3>Need 3 friends</h3><p>A tournament needs 4 or 8 players: you and 3 or 7 friends. Add friends with their code first.</p><button class="btn gold" id="mOk">OK</button>'); $('mOk').onclick = closeModal; return; }
+  let game = 'chess';
+  const pick = new Set();
+  const draw = () => {
+    modal(`<h3>🏆 New tournament</h3><b class="lbl">Game</b><div class="chips wrap">${TOUR_GAMES.map(g => `<button class="chip ${g === game ? 'on' : ''}" data-tg="${g}">${GAME_NAME[g]}</button>`).join('')}</div>
+      <b class="lbl mt12">Pick 3 or 7 friends (${pick.size} picked)</b><div class="panel flist vlist">${hub.friends.map(f => `<label class="frow"><div class="favw">${friendAv(f)}${f.online ? '<i class="ondot"></i>' : ''}</div><b class="grow">${esc(f.name)}</b><input type="checkbox" class="sw" data-tp="${f.code}" ${pick.has(f.code) ? 'checked' : ''}></label>`).join('')}</div>
+      <p class="err" id="tErr"></p><button class="btn gold" id="mOk" ${pick.size === 3 || pick.size === 7 ? '' : 'disabled'}>Start with ${pick.size + 1} players</button><button class="btn ghost" id="mNo">Cancel</button>`);
+    $('mNo').onclick = closeModal;
+    $('modalBox').querySelectorAll('[data-tg]').forEach(b => b.onclick = () => { game = b.dataset.tg; draw(); });
+    $('modalBox').querySelectorAll('[data-tp]').forEach(c => c.onchange = () => { if (c.checked) pick.add(c.dataset.tp); else pick.delete(c.dataset.tp); draw(); });
+    $('mOk').onclick = async () => {
+      try { const r = await hubCall('tour/new', { game, players: [...pick] }); if (r.error) { $('tErr').textContent = r.error; return; } closeModal(); sfx('win'); toast('Tournament started! Everyone got a message', '#1E9E5A'); hub.tours = (hub.tours || []).concat(r.tour); frTab = 'tour'; renderFriends(); }
+      catch (e) { $('tErr').textContent = 'No internet. Try again.'; }
+    };
+  };
+  draw();
+}

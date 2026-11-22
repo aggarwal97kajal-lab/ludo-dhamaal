@@ -5,6 +5,7 @@ const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ONLINE_MS = 75 * 1000;
 const INVITE_MS = 15 * 60 * 1000;
 const MAX_FRIENDS = 100;
+const TOUR_MS = 3 * 24 * 3600 * 1000;
 
 export async function codeOf(key) {
   const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('pitara:' + key)));
@@ -56,7 +57,9 @@ export class Hub {
       await this.put(me);
       const list = [];
       for (const c of me.friends) { const f = await this.get(c); if (f) list.push(this.pub(f, now)); }
-      return J({ me: this.pub(me, now), friends: list, inbox });
+      const tours = [];
+      for (const id of (me.tours || []).slice(-6)) { const t = await this.state.storage.get('t:' + id); if (t && now - t.made < TOUR_MS) tours.push(t); }
+      return J({ me: this.pub(me, now), friends: list, inbox, tours });
     }
     if (path === '/hub/add') {
       const want = String(b.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -86,6 +89,41 @@ export class Hub {
       f.inbox.push({ from: code, name: me.name, look: me.look, tint: me.tint, room, game: String(b.game || '').slice(0, 10), at: now, tour: b.tour ? String(b.tour).slice(0, 12) : undefined });
       await this.put(f);
       return J({ ok: true });
+    }
+    if (path === '/hub/tour/new') {
+      // Knockout for 4 or 8 friends in a 2-player game. Seats are shuffled.
+      const game = ['chess', 'carrom', 'ludo', 'snakes', 'patta'].includes(b.game) ? b.game : 'chess';
+      const codes = [...new Set([code].concat((b.players || []).map(String)))];
+      if (codes.length !== 4 && codes.length !== 8) return J({ error: 'Pick 3 or 7 friends (4 or 8 players with you).' });
+      const ps = [];
+      for (const c of codes) { const u = c === code ? me : await this.get(c); if (!u || (c !== code && !me.friends.includes(c))) return J({ error: 'Everyone must be your friend.' }); ps.push({ code: u.code, name: u.name, look: u.look, tint: u.tint }); }
+      for (let i = ps.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ps[i], ps[j]] = [ps[j], ps[i]]; }
+      const id = (now.toString(36) + Math.random().toString(36).slice(2, 6)).toUpperCase();
+      const first = []; for (let i = 0; i < ps.length; i += 2) first.push({ a: ps[i].code, b: ps[i + 1].code, w: null });
+      const t = { id, game, host: code, players: ps, rounds: [first], made: now, champ: null };
+      await this.state.storage.put('t:' + id, t);
+      for (const p of ps) {
+        const u = p.code === code ? me : await this.get(p.code);
+        u.tours = (u.tours || []).concat(id).slice(-10);
+        if (p.code !== code) { u.inbox = (u.inbox || []).slice(-9); u.inbox.push({ from: code, name: me.name, look: me.look, tint: me.tint, room: null, game, at: now, tour: id }); }
+        await this.put(u);
+      }
+      return J({ ok: true, tour: t });
+    }
+    if (path === '/hub/tour/result') {
+      // A player of the match reports who won. The first report counts.
+      const t = await this.state.storage.get('t:' + String(b.id || ''));
+      if (!t) return J({ error: 'No such tournament' });
+      const r = t.rounds[t.rounds.length - 1], m = r.find(x => (x.a === code || x.b === code) && !x.w);
+      const w = String(b.winner || '');
+      if (!m || (w !== m.a && w !== m.b)) return J({ ok: true, tour: t });
+      m.w = w;
+      if (r.every(x => x.w)) {
+        if (r.length === 1) t.champ = w;
+        else { const next = []; for (let i = 0; i < r.length; i += 2) next.push({ a: r[i].w, b: r[i + 1].w, w: null }); t.rounds.push(next); }
+      }
+      await this.state.storage.put('t:' + t.id, t);
+      return J({ ok: true, tour: t });
     }
     if (path === '/hub/result') {
       const wk = this.week(me); wk.p++; if (b.won) wk.w++;

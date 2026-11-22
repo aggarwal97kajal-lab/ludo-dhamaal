@@ -935,3 +935,19 @@ body.fr-fr5 .av.mine, body.fr-fr5 .medal, .av.fr-fr5 { background: conic-gradien
 .wkcol.p1 .wkblock { height: 120px; background: var(--goldgrad); }
 .wkcol.p2 .wkblock { height: 92px; background: linear-gradient(180deg, #ffffff, #c9c6d8); }
 .wkcol.p3 .wkblock { height: 76px; background: linear-gradient(180deg, #ffd9b0, #c07a3c); }
+/* ---------- Tournament ---------- */
+.tour { display: flex; flex-direction: column; gap: 10px; }
+.tour .ttl { font-size: 17px; color: #ffe17a; }
+.bracket { display: flex; gap: 10px; overflow-x: auto; }
+.bcol { flex: 1; min-width: 104px; display: flex; flex-direction: column; justify-content: space-around; gap: 8px; }
+.bcol > small { font-size: 11px; color: #cdbdf5; font-weight: 800; text-align: center; }
+.bm { display: flex; flex-direction: column; border-radius: 10px; overflow: hidden; box-shadow: 0 0 0 1.5px #b87800; }
+.bm span { padding: 5px 8px; font-size: 13px; font-weight: 700; background: #24104f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm span + span { border-top: 1px solid rgba(255, 211, 77, .25); }
+.bm span.w { background: var(--goldgrad); color: #3a1d00; }
+.bm span.l { opacity: .45; text-decoration: line-through; }
+.bm.tbd span { color: #8a7ab8; text-align: center; }
+.champ { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 14px; background: var(--goldgrad); color: #3a1d00; }
+.champ span { font-size: 28px; } .champ b { font-size: 18px; flex: 1; } .champ small { font-weight: 800; }
+.chips.wrap { flex-wrap: wrap; }
+.btn[disabled] { opacity: .5; }

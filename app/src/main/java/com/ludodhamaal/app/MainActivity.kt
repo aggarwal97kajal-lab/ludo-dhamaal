@@ -290,6 +290,41 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // A phone notification (your turn, a friend's invite) while Pitara is in the background.
+        // data "room:ABCDE" opens that room when tapped.
+        @JavascriptInterface
+        fun notify(title: String, text: String, data: String) {
+            runOnUiThread {
+                try {
+                    if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return@runOnUiThread
+                    val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                    nm.createNotificationChannel(android.app.NotificationChannel("play", "Game alerts", android.app.NotificationManager.IMPORTANCE_HIGH).apply { description = "Your turn and invites from friends" })
+                    val open = Intent(this@MainActivity, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        val room = data.removePrefix("room:")
+                        if (data.startsWith("room:") && Regex("^[A-Z0-9]{5}$").matches(room)) setData(Uri.parse("pitara://room/$room"))
+                    }
+                    val pi = android.app.PendingIntent.getActivity(this@MainActivity, data.hashCode(), open, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                    val n = androidx.core.app.NotificationCompat.Builder(this@MainActivity, "play")
+                        .setSmallIcon(R.mipmap.ic_launcher)
+                        .setContentTitle(title).setContentText(text)
+                        .setAutoCancel(true).setContentIntent(pi)
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                        .build()
+                    nm.notify(if (data.isEmpty()) 1 else data.hashCode(), n)
+                } catch (e: Exception) { /* ignore */ }
+            }
+        }
+
+        // Ask once for permission to show notifications (Android 13 and newer).
+        @JavascriptInterface
+        fun askNotify() {
+            runOnUiThread {
+                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 77)
+            }
+        }
+
         // Share a picture (the win card). to = "whatsapp" opens WhatsApp, anything else shows the share menu.
         @JavascriptInterface
         fun shareImage(dataUrl: String, text: String, to: String) {
