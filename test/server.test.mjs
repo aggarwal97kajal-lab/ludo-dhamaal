@@ -237,4 +237,28 @@ room.clearTurn();
   check(r.s.over && r.s.reason === 'time' && x.got.some(m => m.t === 'passed' && m.reason === 'time'), 'time up ends online game');
   r.clearTurn(); clearTimeout(r.botTimer);
 }
+
+// Zero Kanta and Archery online
+{
+  const r = new Room({}, {}); r.claimed = true; r.code = 'ZEROK';
+  const x = mk('x'), y = mk('y');
+  r.onMsg(x, JSON.stringify({ t: 'hello', pid: 'px', name: 'X', game: 'zerokanta' }));
+  r.onMsg(y, JSON.stringify({ t: 'hello', pid: 'py', name: 'Y' }));
+  const z = mk('z'); r.onMsg(z, JSON.stringify({ t: 'hello', pid: 'pz', name: 'Z' })); check(z.got.some(m => m.code === 'full'), 'zero kanta is 2 players');
+  r.onMsg(x, JSON.stringify({ t: 'start' })); check(r.s.game === 'zerokanta', 'zk started');
+  const P = i => (r.s.players[i].id === 'px' ? x : y);
+  [0, 3, 1, 4, 2].forEach((c, k) => r.onMsg(P(r.s.turn), JSON.stringify({ t: 'zmove', cell: c })));
+  check(r.s.roundOver && r.s.score[0] === 1, 'zk round won online');
+  await new Promise(res => setTimeout(res, 2400)); check(r.s.round === 2 && x.got.some(m => m.t === 'znext'), 'next round starts');
+  r.clearTurn();
+  const a = new Room({}, {}); a.claimed = true; a.code = 'ARCHE';
+  const u = mk('u'), v = mk('v');
+  a.onMsg(u, JSON.stringify({ t: 'hello', pid: 'pu', name: 'U', game: 'archery' }));
+  a.onMsg(v, JSON.stringify({ t: 'hello', pid: 'pv', name: 'V' }));
+  a.onMsg(u, JSON.stringify({ t: 'start' }));
+  const Q = i => (a.s.players[i].id === 'pu' ? u : v);
+  for (let k = 0; k < 10; k++) a.onMsg(Q(a.s.turn), JSON.stringify({ t: 'ashot', x: 0, y: k === 0 ? 0 : 0.35 }));
+  check(a.s.over && a.s.total.join() === '38,35' && a.s.winner === 0, 'archery match online ' + a.s.total);
+  a.clearTurn();
+}
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);

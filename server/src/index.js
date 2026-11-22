@@ -1,4 +1,6 @@
 // Pitara online server (Ludo, Chess, Snakes & Ladders): one Durable Object per room.
+import { newZK, zkMove, zkNext, zkLeft, zkBot } from '../../app/src/main/assets/www/js/zerokanta.js';
+import { newArchery, archeryShot, archeryLeft } from '../../app/src/main/assets/www/js/archery.js';
 import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf, markLeft, botChoice, LUDO_MODES, timeUp } from '../../app/src/main/assets/www/js/rules.js';
 import { newChess, chessMove, chessTimeout, chessLeft, chessPlayer } from '../../app/src/main/assets/www/js/chessrules.js';
 import { newSnakes, snakeRoll, snakePass } from '../../app/src/main/assets/www/js/snakes.js';
@@ -23,7 +25,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'], viewers: true, ludoModes: true, friends: true, v: 12 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix', 'zerokanta', 'archery'], viewers: true, ludoModes: true, friends: true, v: 13 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname.startsWith('/hub/') && req.method === 'POST') {
       const r = await env.HUB.get(env.HUB.idFromName('hub')).fetch(new Request('https://hub' + url.pathname, { method: 'POST', body: await req.text() }));
@@ -182,6 +184,8 @@ export class Room {
       case 'move': this.doMove(me, m.token); break;
       case 'cmove': this.doChessMove(ws, me, m); break;
       case 'rshot': this.doCarromShot(ws, me, m); break;
+      case 'zmove': this.doZK(me, m); break;
+      case 'ashot': this.doArcheryShot(me, m); break;
       case 'sprog': case 'sdone': this.doSudoku(me, m); break;
       case 'aprog': case 'adone': this.doArrows(me, m); break;
       case 'hprog': case 'hdone': this.doHelix(me, m); break;
@@ -230,8 +234,8 @@ export class Room {
     if (!p) {
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
       // The person who creates the room picks the game. Everyone who joins plays that game.
-      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'arrows' || this.game === 'helix' ? 'race' : this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : this.game === 'ludo' ? (LUDO_MODES.includes(m.mode) ? m.mode : 'classic') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
-      const max = this.game === 'chess' || this.game === 'carrom' ? 2 : this.game === 'draw' ? DRAW_MAX : 4;
+      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix', 'zerokanta', 'archery'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'arrows' || this.game === 'helix' ? 'race' : this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : this.game === 'ludo' ? (LUDO_MODES.includes(m.mode) ? m.mode : 'classic') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
+      const max = this.game === 'chess' || this.game === 'carrom' || this.game === 'zerokanta' || this.game === 'archery' ? 2 : this.game === 'draw' ? DRAW_MAX : 4;
       if (this.players.length >= max) return this.opts.viewers ? this.send(ws, { t: 'err', code: 'full', msg: `This room is full (${max} players).`, fatal: true }) : this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
       p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false, fr: cleanFr(m.fr), fc: cleanFc(m.fc) };
       this.players.push(p);
@@ -289,6 +293,9 @@ export class Room {
       } else if (ci >= 0 && !this.s.over) {
         carromLeft(this.s, ci); this.clearTurn();
         this.all({ t: 'rend', s: this.s });
+      } else if ((this.s.game === 'zerokanta' || this.s.game === 'archery') && !this.s.over) {
+        const k = this.s.players.findIndex(x => x.id === pid);
+        if (k >= 0) { if (this.s.game === 'zerokanta') zkLeft(this.s, k); else archeryLeft(this.s, k); this.clearTurn(); this.all({ t: this.s.game === 'zerokanta' ? 'zmoved' : 'ashot', ev: { left: k }, s: this.s, turnEnds: null }); }
       } else if (gp && !this.s.over && this.s.game === 'chess') {
         chessLeft(this.s, gp.color); this.clearTurn();
         this.all({ t: 'cend', s: this.s });
@@ -409,6 +416,17 @@ export class Room {
       this.s = newPatta(order.map(p => ({ id: p.pid, name: p.name, kind: 'remote', look: p.look, tint: p.tint })));
       this.armTurn(PATTA_MS);
       this.pAll({ t: 'start', turnEnds: this.turnEnds });
+      this.lobby();
+      return;
+    }
+    if (this.game === 'zerokanta' || this.game === 'archery') {
+      // Who goes first swaps every new game.
+      this.round2 = (this.round2 || 0) + 1;
+      const two = ready.slice(0, 2); if (this.round2 % 2 === 0) two.reverse();
+      const ps = two.map(p => ({ id: p.pid, name: p.name, kind: 'remote', look: p.look, tint: p.tint }));
+      this.s = this.game === 'zerokanta' ? newZK(ps) : newArchery(ps);
+      this.armTurn();
+      this.all({ t: 'start', s: this.s, turnEnds: this.turnEnds });
       this.lobby();
       return;
     }
@@ -639,7 +657,7 @@ export class Room {
   }
   // Between games, viewers who asked for a seat get one (first come, first served).
   seatViewers() {
-    const max = this.game === 'chess' || this.game === 'carrom' ? 2 : this.game === 'draw' ? DRAW_MAX : 4;
+    const max = this.game === 'chess' || this.game === 'carrom' || this.game === 'zerokanta' || this.game === 'archery' ? 2 : this.game === 'draw' ? DRAW_MAX : 4;
     for (const v of this.viewers.slice()) {
       if (!v.seat || this.players.length >= max || !this.wsOf(v.pid)) continue;
       this.viewers = this.viewers.filter(x => x !== v);
@@ -702,6 +720,30 @@ export class Room {
     }, extra + (s.game === 'patta' ? 1400 : s.rolled ? 900 : 1300));
   }
 
+  // ---------- Zero Kanta ----------
+  doZK(pid, m) {
+    const s = this.s; if (!s || s.game !== 'zerokanta' || s.over) return;
+    const who = s.players.findIndex(p => p.id === pid); if (who < 0) return;
+    const ev = zkMove(s, who, Number(m.cell)); if (!ev) return;
+    if (m.timeout) ev.timeout = true;
+    this.clearTurn();
+    if (!s.over && s.roundOver) {
+      const seq = s.seq;
+      setTimeout(() => { if (this.s === s && s.seq === seq && zkNext(s)) { this.armTurn(); this.all({ t: 'znext', s, turnEnds: this.turnEnds }); } }, 2200);
+    } else if (!s.over) this.armTurn();
+    this.all({ t: 'zmoved', ev, s, turnEnds: this.turnEnds });
+  }
+  // ---------- Archery ----------
+  // Each phone works out where its own arrow lands (aim, wind and hand shake) and sends it.
+  doArcheryShot(pid, m) {
+    const s = this.s; if (!s || s.game !== 'archery' || s.over) return;
+    const who = s.players.findIndex(p => p.id === pid); if (who < 0) return;
+    const ev = archeryShot(s, who, Number(m.x), Number(m.y)); if (!ev) return;
+    if (m.timeout) ev.timeout = true;
+    if (s.over) this.clearTurn(); else this.armTurn(30000 + 2500);
+    this.all({ t: 'ashot', ev, s, turnEnds: this.turnEnds });
+  }
+
   current() { return this.s ? (this.s.game === 'carrom' ? this.s.players[this.s.turn] : playerOf(this.s, this.s.turn)) : null; }
 
   // ---------- Carrom ----------
@@ -755,7 +797,7 @@ export class Room {
   armTurn(ms) {
     this.clearTurn();
     if (!this.s || this.s.over) return;
-    ms = ms || (this.s.game === 'carrom' ? CARROM_MS : this.s.game === 'patta' ? PATTA_MS : TURN_MS);
+    ms = ms || (this.s.game === 'carrom' ? CARROM_MS : this.s.game === 'patta' ? PATTA_MS : this.s.game === 'zerokanta' ? 20000 : this.s.game === 'archery' ? 30000 : TURN_MS);
     this.turnEnds = Date.now() + ms;
     const seq = this.s.seq;
     this.turnTimer = setTimeout(() => { if (this.s && this.s.seq === seq && !this.s.over) this.skip('timeout'); }, ms);
@@ -763,6 +805,8 @@ export class Room {
   }
 
   skip(reason) {
+    if (this.s.game === 'zerokanta') { const i = zkBot(this.s, this.s.turn, 'easy'); return this.doZK(this.s.players[this.s.turn].id, { cell: i, timeout: true }); }
+    if (this.s.game === 'archery') return this.doArcheryShot(this.s.players[this.s.turn].id, { x: 2, y: 0, timeout: true });
     if (this.s.game === 'patta') {
       const ev = pattaTimeout(this.s);
       if (this.s.over) this.clearTurn(); else this.armTurn(PATTA_MS);

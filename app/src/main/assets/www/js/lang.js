@@ -2,6 +2,14 @@
 // The screens are written in English; this swaps known phrases on screen as they appear.
 // [English, Hinglish, Hindi]
 const T = [
+  ['Who do you want to play with?', 'Kiske saath khelna hai?', 'किसके साथ खेलना है?'], ['All games', 'Sab games', 'सभी खेल'], ['Welcome back 👋', 'Wapas swagat hai 👋', 'फिर से स्वागत है 👋'],
+  ['Play solo against the computer', 'Akele computer se khelo', 'अकेले कंप्यूटर से खेलो'], ['Play a friend anywhere and talk on mic', 'Dost ke saath kahin se bhi khelo', 'दोस्त के साथ कहीं से भी खेलो'],
+  ['2 players taking turns on one phone', '2 log ek phone pe baari-baari', '2 लोग एक फ़ोन पर बारी-बारी'], ['Your turn: tap a box', 'Aapki baari: dabba chuno', 'आपकी बारी: खाना चुनो'], ['Next round starting...', 'Agla round shuru...', 'अगला राउंड शुरू...'],
+  ['👆 Hold, drag to aim, let go', '👆 Dabake rakho, nishana lagao, chhodo', '👆 दबाकर रखो, निशाना लगाओ, छोड़ो'], ['Let go to shoot!', 'Ab chhodo!', 'अब छोड़ो!'], ['Steady', 'Sthir', 'स्थिर'],
+  ['BULLSEYE!', 'BULLSEYE!', 'बुल्सआई!'], ['Great shot!', 'Zabardast!', 'ज़बरदस्त!'], ['Miss', 'Chook gaya', 'चूक गया'], ['Crop your photo', 'Photo crop karo', 'फ़ोटो काटो'], ['Use photo ✓', 'Lagao ✓', 'लगाओ ✓'],
+  ['Free', 'Free', 'खुला'], ['Square', 'Square', 'चौकोर'], ['Rotate', 'Ghumao', 'घुमाओ'], ['Flip', 'Ulta', 'उल्टा'], ['Preview', 'Aisa dikhega', 'ऐसा दिखेगा'], ['Reset', 'Reset', 'रीसेट'],
+  ['Next ▸', 'Aage ▸', 'आगे ▸'], ['Skip', 'Skip', 'छोड़ो'], ['Let’s go ▸', 'Chalo ▸', 'चलो ▸'], ['App tour', 'App ki sair', 'ऐप की सैर'], ['Zero Kanta', 'Zero Kanta', 'ज़ीरो काटा'], ['Archery', 'Archery', 'तीरंदाज़ी'],
+  ['Pick a game here 🎲', 'Yahan se game chuno 🎲', 'यहाँ से खेल चुनो 🎲'], ['Free reward every day 🎁', 'Roz free inaam 🎁', 'रोज़ मुफ़्त इनाम 🎁'], ['Play with friends 👥', 'Doston ke saath khelo 👥', 'दोस्तों के साथ खेलो 👥'],
   ['Games', 'Games', 'गेम्स'], ['History', 'History', 'इतिहास'], ['Friends', 'Dost', 'दोस्त'], ['Profile', 'Profile', 'प्रोफ़ाइल'],
   ['Welcome back', 'Wapas swagat hai', 'फिर से स्वागत है'], ['Family game night, every night', 'Har raat family game night', 'हर रात परिवार के साथ खेल'],
   ['Daily', 'Daily', 'रोज़ाना'], ['Shop', 'Dukaan', 'दुकान'], ['Badges', 'Badges', 'बैज'],
@@ -71,15 +79,24 @@ const RULES = [
 ];
 export const LANGS = [['en', 'English'], ['hng', 'Hinglish'], ['hi', 'हिंदी']];
 let lang = 'en', map = null;
+// Every text we change remembers its English, so the language can change again at once (no reload).
+const orig = new Map();      // text node -> English text
+const origPh = new Map();    // input -> English placeholder
 export function setLang(l) {
   lang = ['hng', 'hi'].includes(l) ? l : 'en';
-  if (lang === 'en') { map = null; return; }
+  // Put English back first.
+  for (const [n, t] of orig) { if (n.isConnected) n.nodeValue = t; }
+  for (const [n, t] of origPh) { if (n.isConnected) n.placeholder = t; }
+  orig.clear(); origPh.clear();
+  if (lang === 'en') { map = null; document.documentElement.lang = 'en'; return; }
   const k = lang === 'hng' ? 1 : 2; map = new Map(T.map(r => [r[0], r[k]]));
   document.documentElement.lang = lang === 'hi' ? 'hi' : 'en';
   fix(document.body);
   if (!setLang.obs) {
     setLang.obs = new MutationObserver(list => { if (!map) return; for (const m of list) { if (m.type === 'characterData') fixText(m.target); else m.addedNodes.forEach(n => fix(n)); } });
     setLang.obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    // Forget texts that are gone from the screen.
+    setInterval(() => { for (const n of orig.keys()) if (!n.isConnected) orig.delete(n); for (const n of origPh.keys()) if (!n.isConnected) origPh.delete(n); }, 20000);
   }
 }
 export function tr(s) { if (!map) return s; return swap(s) || s; }
@@ -90,7 +107,11 @@ function swap(t) {
   for (const [re, out] of RULES) if (re.test(x)) return t.replace(x, x.replace(re, out[k]));
   return null;
 }
-function fixText(n) { const v = swap(n.nodeValue); if (v != null && v !== n.nodeValue) n.nodeValue = v; }
+function fixText(n) {
+  if (!map) return;
+  const v = swap(n.nodeValue);
+  if (v != null && v !== n.nodeValue) { if (!orig.has(n)) orig.set(n, n.nodeValue); n.nodeValue = v; }
+}
 function fix(root) {
   if (!map || !root) return;
   if (root.nodeType === 3) return fixText(root);
@@ -99,7 +120,7 @@ function fix(root) {
   let n = w.currentNode;
   while (n) {
     if (n.nodeType === 3) fixText(n);
-    else if (n.placeholder) { const v = map.get(n.placeholder); if (v) n.placeholder = v; }
+    else if (n.placeholder) { const v = map.get(n.placeholder); if (v) { if (!origPh.has(n)) origPh.set(n, n.placeholder); n.placeholder = v; } }
     n = w.nextNode();
   }
 }

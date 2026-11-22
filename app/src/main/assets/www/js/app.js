@@ -17,6 +17,9 @@ import { Helix3D } from './helix3d.js';
 import { makePuzzle, dailySeed, peers as sdPeers, LEVELS as SD_LEVELS, LEVEL_NAME as SD_NAME, MAX_MISTAKES as SD_MAX } from './sudoku.js';
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaBot, playable as pattaPlayable, canPlay as pattaCanPlay, top as pattaTop, label as pattaLabel, ranking as pattaRanking, COLORS as PCOLORS } from './patta.js';
 import { PUZZLES } from './puzzles.js';
+import { sceneSvg, targetAt, stuckArrow, targetFace } from './archeryscene.js';
+import { newZK, zkMove, zkNext, zkBot } from './zerokanta.js';
+import { newArchery, archeryShot, archeryBot, archeryWind, archeryDist, scoreAt, drift as aDrift, ROUNDS as A_ROUNDS } from './archery.js';
 import { setLang, LANGS } from './lang.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
 
@@ -79,7 +82,7 @@ function show(id) {
   if (id === 'badges') renderBadges();
   if (id === 'friends') { if (window.LDNative && window.LDNative.askNotify && !store.get('askedNotify', false)) { store.set('askedNotify', true); window.LDNative.askNotify(); } renderFriends(); hubPing(); $('navFriendsDot').classList.remove('show'); }
   if (id === 'win') winExtras();
-  if (id === 'home') { renderCoins(); setDailyDot(); }
+  if (id === 'home') { renderCoins(); setDailyDot(); if (profile && !store.get('guided', false)) setTimeout(() => { if (current === 'home' && !document.querySelector('.guide,.welcome')) startGuide(); }, 900); }
   updateVStrip();
   const nav = ['home', 'history', 'hgame', 'shop', 'badges', 'daily', 'friends'].includes(id) || (id === 'profile' && !!profile);
   $('bnav').classList.toggle('show', nav);
@@ -158,6 +161,7 @@ function openProfile() {
   renderProfile(); show('profile');
 }
 function renderProfile() {
+  $('pfPreview').style.setProperty('--gem', UI[pfColor]);
   $('pfPreview').innerHTML = pfPhoto ? `<div class="in photo" style="background:${UI[pfColor]}"><img src="${pfPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[pfColor]}"><img src="${face(pfLook, pfColor)}" alt=""></div>`;
   $('pfLooks').innerHTML = [0, 1, 2, 3].map(i => `<button class="lookm ${i === pfLook ? 'on' : ''}" data-l="${i}" aria-label="${CHAR_NAME[i]}"><div class="in" style="background:${UI[pfColor]}"><img src="${face(i, pfColor)}" alt=""></div><small>${CHAR_NAME[i]}</small></button>`).join('');
   $('pfColors').innerHTML = UI.map((c, i) => `<button class="gemc ${i === pfColor ? 'on' : ''}" data-c="${i}" style="background:${c};color:${c}" aria-label="${CNAME[i]} colour"></button>`).join('');
@@ -175,7 +179,7 @@ function askPhoto(from) {
 }
 window.ldPhoto = data => {
   if (!data) return;
-  squarePhoto(data, 256).then(d => { pfPhoto = d; renderProfile(); sfx('pop'); }).catch(() => {});
+  openCrop(data, d => { pfPhoto = d; renderProfile(); sfx('pop'); });
 };
 $('pfFile').addEventListener('change', e => {
   const file = e.target.files && e.target.files[0]; if (!file) return;
@@ -262,7 +266,7 @@ function stats(list) {
   const best = Object.keys(by).sort((x, y) => by[y] - by[x])[0] || null;
   return { played: L.length, won, lost, rate: L.length ? Math.round(won / L.length * 100) : 0, streak, best };
 }
-const GAME_ICON = { ludo: '🎲', chess: '&#9822;', carrom: '🎯', snakes: '🐍', patta: '🃏', sudoku: '🔢', arrows: '➹', draw: '✏️', helix: '🌀' };
+const GAME_ICON = { ludo: '🎲', chess: '&#9822;', carrom: '🎯', snakes: '🐍', patta: '🃏', sudoku: '🔢', arrows: '➹', draw: '✏️', helix: '🌀', zerokanta: '✕', archery: '🏹' };
 function statsHtml(st, profileView) {
   const four = profileView
     ? [['gold', st.played, 'Played'], ['green', st.won, 'Won'], ['', st.rate + '%', 'Win rate'], ['', (st.streak ? '🔥' : '') + st.streak, 'Streak']]
@@ -283,7 +287,7 @@ function levelOf(won) {
   return { lv, title: titles.find(t => lv >= t[0])[1], left: 3 - (won % 3), frac: (won % 3) / 3 };
 }
 const GAME_GRAD = { ludo: ['#ff5a82', '#c3093f', '#5a0020'], chess: ['#8f6bff', '#4a22d6', '#1d0a6b'], carrom: ['#ffb347', '#e06d06', '#5a1e06'], snakes: ['#3ee0a3', '#059669', '#053b2c'],
-  patta: ['#ff7a59', '#d6301b', '#5a0a06'], sudoku: ['#ffe27a', '#c99400', '#4a3300'], arrows: ['#5ad8ff', '#1479d6', '#082a6b'], draw: ['#ff8fd1', '#c2188a', '#4a0638'], helix: ['#ff8fd1', '#b02a8a', '#3a0d5a'] };
+  patta: ['#ff7a59', '#d6301b', '#5a0a06'], sudoku: ['#ffe27a', '#c99400', '#4a3300'], arrows: ['#5ad8ff', '#1479d6', '#082a6b'], draw: ['#ff8fd1', '#c2188a', '#4a0638'], helix: ['#ff8fd1', '#b02a8a', '#3a0d5a'], zerokanta: ['#7af0ff', '#1479d6', '#082a6b'], archery: ['#9cff7a', '#1e9e5a', '#0b3b22'] };
 const gname = g => GAME_NAME[g].replace(' & Ladders', '');
 const ringSvg = (pc, size, w, col) => { const r = size / 2 - w / 2 - 1, L = 2 * Math.PI * r; return `<svg viewBox="0 0 ${size} ${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="#12072e" stroke-width="${w}"/><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${(L * pc / 100).toFixed(1)} ${L.toFixed(1)}" transform="rotate(-90 ${size / 2} ${size / 2})"/></svg>`; };
 const secsOf = h => { if (h.secs) return h.secs; const m = /in (\d+):(\d+)/.exec(h.score || ''); return m ? +m[1] * 60 + +m[2] : null; };
@@ -370,15 +374,23 @@ $('hgBack').onclick = () => { sfx('click'); show('history'); };
 // ---------- Home ----------
 // The game picked on the Pitara home screen: 'ludo' or 'chess'.
 let GAME = store.get('game', 'ludo');
-const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'UNO', sudoku: 'Sudoku', arrows: 'Arrow Escape', draw: 'Draw & Guess', helix: 'Helix Drop' };
+const GAME_NAME = { ludo: 'Ludo', chess: 'Chess', snakes: 'Snakes & Ladders', carrom: 'Carrom', patta: 'UNO', sudoku: 'Sudoku', arrows: 'Arrow Escape', draw: 'Draw & Guess', helix: 'Helix Drop', zerokanta: 'Zero Kanta', archery: 'Archery' };
 // Screens where a game is being played (music off, back button asks to leave, chat bubbles).
-const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'];
+const PLAY_SCREENS = ['game', 'chess', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix', 'zk', 'aq'];
 const ARCH = '<svg class="frame" viewBox="0 0 176 228" preserveAspectRatio="none"><use href="#archOuter" fill="none" stroke="url(#g)" stroke-width="7"/><use href="#archInner" fill="none" stroke="#ffe17a" stroke-width="1.2" opacity=".8"/><circle cx="88" cy="7" r="5" fill="GEM" stroke="#ffe17a" stroke-width="2"/></svg>';
+// "NEW" shows only on games added in the latest update, and only until you open that game once.
+const NEW_GAMES = ['zerokanta', 'archery'];
+const seenGames = new Set(store.get('seenGames', []));
+const isNewG = g => NEW_GAMES.includes(g) && !seenGames.has(g);
+function markSeen(g) { if (!seenGames.has(g)) { seenGames.add(g); store.set('seenGames', [...seenGames]); } }
 function renderHome() {
+  if (profile) document.body.style.setProperty('--gem', UI[profile.color]);
   $('homeAv').innerHTML = myPhoto ? `<div class="in photo" style="background:${UI[profile.color]}"><img src="${myPhoto}" alt=""></div>` : `<div class="in" style="background:${UI[profile.color]}"><img src="${face(profile.look, profile.color)}" alt=""></div>`;
   $('homeName').textContent = profile.name;
   const st = stats();
-  $('homeChips').innerHTML = `<span class="hchip g">🏆 ${st.won} win${st.won === 1 ? '' : 's'}</span>${st.streak > 1 ? `<span class="hchip">🔥 ${st.streak} streak</span>` : ''}`;
+  const lv = levelOf(st.won);
+  $('homeChips').innerHTML = `<span class="hchip g">👑 Lv ${lv.lv} · ${lv.title}</span>`;
+  renderHero(); setTimeout(() => { $('gCount').textContent = document.querySelectorAll('#games .arch').length + ' games'; }, 0);
   if (!$('homeLights').innerHTML) {
     const cols = ['#ffd34d', '#ff5f93', '#4be3d0', '#ffd34d', '#ff9f43'];
     let h = '<path d="M0 6 Q102 46 205 14 Q308 46 410 6" fill="none" stroke="#3b2a1a" stroke-width="1.5"/>';
@@ -396,30 +408,33 @@ function renderHome() {
     arch('chess', '#0fb5a5', '2', '<span class="glyph w">&#9819;</span><span class="glyph g">&#9822;</span>', 'Chess', 'With move help') +
     arch('carrom', '#e5196f', '2', `<div class="cboard3">${pk('left:1px;top:1px', '#120a06')}${pk('right:1px;top:1px', '#120a06')}${pk('left:1px;bottom:1px', '#120a06')}${pk('right:1px;bottom:1px', '#120a06')}${pk('left:28px;top:28px', '#d9142e')}${pk('left:15px;top:30px', '#f6efdc')}${pk('left:41px;top:25px', '#1f1f1f')}<i style="left:30px;top:44px;width:15px;height:15px;background:#eef;border:2px solid #3d5afe"></i></div>`, 'Carrom', '3 ways to play') +
     arch('snakes', '#0fb5a5', '2-4', body(2, 2, 104), 'Snakes &amp; Ladders', 'First to 100', 'long') +
-    arch('patta', '#0fb5a5', '2-4', `<div class="minicards">${mc(0, 7, -16)}${mc(3, 'rev', -2)}${mc(2, 'd2', 14)}</div>`, 'UNO', 'Colour &amp; number', '', true) +
-    arch('sudoku', '#e5196f', '1-4', `<div class="minisd">${[5, '', 3, '', 8, '', 7, '', 1].map((n, i) => `<i class="${i === 4 ? 'on' : ''}">${n}</i>`).join('')}</div>`, 'Sudoku', 'Daily puzzle', '', true) +
-    arch('arrows', '#0fb5a5', '1-4', '<svg viewBox="0 0 80 80" style="width:78px;height:78px;margin-bottom:10px;stroke:none"><g stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M14 22 H50 M44 14 L54 22 L44 30" stroke="#fff"/><path d="M30 40 V70 M22 62 L30 72 L38 62" stroke="#ffd34d"/><path d="M66 70 V36 M58 44 L66 34 L74 44" stroke="#ff5f93"/><path d="M46 52 H14 M22 44 L12 52 L22 60" stroke="#7af0ff"/></g></svg>', 'Arrow Escape', `Level ${settings.arLevel || 1}`, 'long', true) +
-    arch('draw', '#ffd34d', '2-6', '<div class="minidraw"><span class="pg"><svg viewBox="0 0 100 90"><path d="M30 34 C42 20 66 24 70 44 C74 64 56 76 42 72 C26 68 22 52 30 34Z" fill="none" stroke="#e6a800" stroke-width="5"/><path d="M48 26 L52 14" stroke="#6b3a00" stroke-width="5" stroke-linecap="round"/><path d="M52 16 C60 8 72 10 74 16 C66 20 58 20 52 16Z" fill="#059669" stroke="none"/></svg></span><i>✏️</i></div>', 'Draw &amp; Guess', 'Draw, friends guess', 'long', true) +
-    arch('helix', '#e5196f', '1-4', '<svg viewBox="0 0 80 90" style="width:76px;height:86px;margin-bottom:8px;stroke:none"><rect x="35" y="0" width="10" height="90" rx="3" fill="#fff6c4"/><path d="M6 22 A34 10 0 0 0 74 22 L74 28 A34 10 0 0 1 6 28Z" fill="#ffb3d9"/><ellipse cx="40" cy="22" rx="34" ry="10" fill="#ffd1ea"/><path d="M40 22 L74 22 A34 10 0 0 1 58 31Z" fill="#e5196f"/><path d="M6 52 A34 10 0 0 0 74 52 L74 58 A34 10 0 0 1 6 58Z" fill="#ffb3d9"/><ellipse cx="40" cy="52" rx="34" ry="10" fill="#ffd1ea"/><path d="M40 52 L6 52 A34 10 0 0 1 22 43Z" fill="#7a2a8a"/><circle cx="54" cy="10" r="7" fill="#ff3b6b" stroke="#fff" stroke-width="1.5"/></svg>', 'Helix Drop', `Level ${settings.hxLevel || 1}`, 'long', true);
+    arch('patta', '#0fb5a5', '2-4', `<div class="minicards">${mc(0, 7, -16)}${mc(3, 'rev', -2)}${mc(2, 'd2', 14)}</div>`, 'UNO', 'Colour &amp; number', '', isNewG('patta')) +
+    arch('sudoku', '#e5196f', '1-4', `<div class="minisd">${[5, '', 3, '', 8, '', 7, '', 1].map((n, i) => `<i class="${i === 4 ? 'on' : ''}">${n}</i>`).join('')}</div>`, 'Sudoku', 'Daily puzzle', '', isNewG('sudoku')) +
+    arch('arrows', '#0fb5a5', '1-4', '<svg viewBox="0 0 80 80" style="width:78px;height:78px;margin-bottom:10px;stroke:none"><g stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M14 22 H50 M44 14 L54 22 L44 30" stroke="#fff"/><path d="M30 40 V70 M22 62 L30 72 L38 62" stroke="#ffd34d"/><path d="M66 70 V36 M58 44 L66 34 L74 44" stroke="#ff5f93"/><path d="M46 52 H14 M22 44 L12 52 L22 60" stroke="#7af0ff"/></g></svg>', 'Arrow Escape', `Level ${settings.arLevel || 1}`, 'long', isNewG('arrows')) +
+    arch('draw', '#ffd34d', '2-6', '<div class="minidraw"><span class="pg"><svg viewBox="0 0 100 90"><path d="M30 34 C42 20 66 24 70 44 C74 64 56 76 42 72 C26 68 22 52 30 34Z" fill="none" stroke="#e6a800" stroke-width="5"/><path d="M48 26 L52 14" stroke="#6b3a00" stroke-width="5" stroke-linecap="round"/><path d="M52 16 C60 8 72 10 74 16 C66 20 58 20 52 16Z" fill="#059669" stroke="none"/></svg></span><i>✏️</i></div>', 'Draw &amp; Guess', 'Draw, friends guess', 'long', isNewG('draw')) +
+    arch('helix', '#e5196f', '1-4', '<svg viewBox="0 0 80 90" style="width:76px;height:86px;margin-bottom:8px;stroke:none"><rect x="35" y="0" width="10" height="90" rx="3" fill="#fff6c4"/><path d="M6 22 A34 10 0 0 0 74 22 L74 28 A34 10 0 0 1 6 28Z" fill="#ffb3d9"/><ellipse cx="40" cy="22" rx="34" ry="10" fill="#ffd1ea"/><path d="M40 22 L74 22 A34 10 0 0 1 58 31Z" fill="#e5196f"/><path d="M6 52 A34 10 0 0 0 74 52 L74 58 A34 10 0 0 1 6 58Z" fill="#ffb3d9"/><ellipse cx="40" cy="52" rx="34" ry="10" fill="#ffd1ea"/><path d="M40 52 L6 52 A34 10 0 0 1 22 43Z" fill="#7a2a8a"/><circle cx="54" cy="10" r="7" fill="#ff3b6b" stroke="#fff" stroke-width="1.5"/></svg>', 'Helix Drop', `Level ${settings.hxLevel || 1}`, 'long', isNewG('helix')) +
+    arch('zerokanta', '#3ddcff', '2', '<div class="minizk"><span class="x">✕</span><span class="o">◯</span></div>', 'Zero Kanta', '3 in a row', 'long', isNewG('zerokanta')) +
+    arch('archery', '#9cff7a', '1-2', '<div class="miniar"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="34" fill="#fff"/><circle cx="40" cy="40" r="27" fill="#1d1d1f"/><circle cx="40" cy="40" r="20" fill="#1f6fff"/><circle cx="40" cy="40" r="13" fill="#e5192e"/><circle cx="40" cy="40" r="6" fill="#ffd21a"/><path d="M42 38 L70 10" stroke="#5a2a10" stroke-width="3.5"/><path d="M68 6 l8 -2 -2 8z M64 12 l6 -6" fill="#ff3d7a" stroke="#ff3d7a" stroke-width="2"/></svg></div>', 'Archery', 'Mind the wind', '', isNewG('archery'));
   music(true);
 }
 $('homeAv').onclick = () => { sfx('click'); openProfile(); };
-$('homeHistory').onclick = () => { sfx('click'); show('history'); };
+$('homeHistory').onclick = () => { sfx('click'); show('shop'); };
 $('games').addEventListener('click', e => {
   const b = e.target.closest('[data-game]'); if (!b) return; sfx('click');
-  GAME = b.dataset.game; store.set('game', GAME); show('gamehome');
+  GAME = b.dataset.game; store.set('game', GAME); markSeen(GAME); show('gamehome');
 });
 const PIECE = { k: '&#9818;', q: '&#9819;', r: '&#9820;', b: '&#9821;', n: '&#9822;', p: '&#9823;' };
 function renderModes() {
   const chess = GAME === 'chess';
-  $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">UNO</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : GAME === 'draw' ? '<div class="l1">Draw &amp;</div><div class="l2">Guess</div>' : GAME === 'helix' ? '<div class="l1">Helix</div><div class="l2">Drop</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
+  $('gameLogo').innerHTML = gameBanner(GAME);
+  if (false) $('gameLogo').innerHTML = chess ? '<div class="l1">3D</div><div class="l2">Chess</div>' : GAME === 'carrom' ? '<div class="l1">Carrom</div>' : GAME === 'snakes' ? '<div class="l1">Snakes</div><div class="l2">& Ladders</div>' : GAME === 'patta' ? '<div class="l1">UNO</div>' : GAME === 'sudoku' ? '<div class="l1">Sudoku</div>' : GAME === 'arrows' ? '<div class="l1">Arrow</div><div class="l2">Escape</div>' : GAME === 'draw' ? '<div class="l1">Draw &amp;</div><div class="l2">Guess</div>' : GAME === 'helix' ? '<div class="l1">Helix</div><div class="l2">Drop</div>' : '<div class="l1">Ludo</div><div class="l2">Dhamaal</div>';
   const g = k => `<div class="glyphs">${k}</div>`;
   const modes = GAME === 'carrom' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, [0, 1]],
     ['join', 'Join a room', 'Enter your friend’s room code', 3, [3]],
     ['bot', 'Play vs computer', 'Play solo against the computer', 1, [1]],
     ['local', 'Pass & play', '2 players taking turns on one phone', 2, [2, 0]]
-  ] : chess ? [
+  ] : chess || GAME === 'zerokanta' || GAME === 'archery' ? [
     ['online', 'Create online room', 'Play a friend anywhere and talk on mic', 0, g(PIECE.q + PIECE.k)],
     ['join', 'Join a room', 'Enter your friend’s room code', 3, g(PIECE.r)],
     ['bot', 'Play vs computer', 'Play solo against the computer', 1, g(PIECE.n)],
@@ -430,9 +445,9 @@ function renderModes() {
     ['bot', 'Play vs computer', 'Play solo against a bot', 1, [1]],
     ['local', 'Pass & play', '2-4 players taking turns on one phone', 2, [2, 0, 3]]
   ];
-  const list = modes.map(m => `<button class="mode ${GAME === 'carrom' ? 'sm' : ''}" data-mode="${m[0]}" style="background:${UI[m[3]]};border-color:${UI_EDGE[m[3]]};color:${UI_FG[m[3]]}">
-    <div class="col grow"><span class="t">${m[1]}</span><span class="s">${m[2]}</span></div>
-    <div class="ppl">${typeof m[4] === 'string' ? m[4] : m[4].map(i => body(i, i, GAME === 'carrom' ? 58 : 82)).join('')}</div></button>`).join('');
+  const ICON = { online: '🌐', join: '🔑', bot: '🤖', local: '📱' };
+  const onl = (hub.friends || []).filter(f => f.online).length;
+  const list = `<div class="secrow"><b>Who do you want to play with?</b></div><div class="who2">` + modes.map(m => `<button class="pick ${m[0]}" data-mode="${m[0]}"><div class="shine"></div><span class="md">${ICON[m[0]]}</span><span class="col grow minw0"><b>${m[1]}${m[0] === 'online' && onl ? ` <span class="live2">● ${onl} online</span>` : ''}</b><small>${m[2]}</small></span><span class="chev">›</span></button>`).join('') + '</div>';
   if (GAME === 'sudoku') { $('modes').innerHTML = sudokuModesHtml(); music(true); return; }
   if (GAME === 'arrows') { $('modes').innerHTML = arrowModesHtml(); music(true); return; }
   if (GAME === 'helix') {
@@ -448,7 +463,7 @@ function renderModes() {
       <button class="sdmode blue" data-mode="join"><span class="col grow"><b>Join a room</b><small>Enter your friend’s room code</small></span></button>`;
     music(true); return;
   }
-  $('modes').innerHTML = GAME === 'chess' ? puzzleCardHtml() + list : GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : GAME === 'ludo' ? ludoModesHtml() + `<div class="modegrid">${list}</div>` : list;
+  $('modes').innerHTML = GAME === 'chess' ? puzzleCardHtml() + list : GAME === 'carrom' ? carromTypesHtml() + list : GAME === 'ludo' ? ludoModesHtml() + list : list;
   music(true);
 }
 // Ludo: four ways to play, picked above the play buttons.
@@ -460,7 +475,8 @@ const LMODES = [
 ];
 const LMODE_NAME = { classic: 'Classic', quick: 'Quick Ludo', timer: 'Timer Ludo', team: '2 vs 2 Team' };
 function ludoModesHtml() {
-  return `<div class="lmodes">${LMODES.map(t => `<button class="lmode ${t[0]} ${settings.ludoMode === t[0] ? 'on' : ''}" data-lmode="${t[0]}"><i>${t[1]}</i><span class="col grow"><b>${t[2]}</b><small>${t[3]}</small></span>${settings.ludoMode === t[0] ? '<em class="tick">✓</em>' : ''}</button>`).join('')}</div>`;
+  const cur = LMODES.find(t => t[0] === settings.ludoMode) || LMODES[0];
+  return `<div class="segm">${LMODES.map(t => `<button class="${settings.ludoMode === t[0] ? 'on' : ''}" data-lmode="${t[0]}"><i>${t[1]}</i>${t[2].replace(' Ludo', '').replace(' Team', '')}</button>`).join('')}</div><small class="segsub">${cur[3]}</small>`;
 }
 // Carrom: three ways to play and the striker design, picked above the play buttons.
 const CTYPES = [
@@ -510,7 +526,9 @@ function openSetup(m) {
 }
 function setupColors() { return seatColors(setupN).map(c => (c + profile.color) % 4); }
 function renderSetup() {
+  $('setupLevel').innerHTML = '';
   if (GAME === 'chess') return renderChessSetup();
+  if (GAME === 'zerokanta' || GAME === 'archery') return renderDuoSetup();
   if (GAME === 'carrom') return renderCarromSetup();
   const team = GAME === 'ludo' && settings.ludoMode === 'team';
   if (team) setupN = 4;
@@ -533,6 +551,7 @@ $('setupCount').addEventListener('click', e => {
 });
 $('setupGo').onclick = () => {
   if (GAME === 'chess') return goChessSetup();
+  if (GAME === 'zerokanta' || GAME === 'archery') return goDuoSetup();
   if (GAME === 'carrom') return goCarromSetup();
   const cols = setupColors();
   const others = [0, 1, 2, 3].filter(x => x !== ch(profile.look));
@@ -947,6 +966,8 @@ $('winAgain').onclick = () => {
   if (G.s && G.s.game === 'carrom') return startCarrom(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })), G.s.mode);
   if (G.game === 'sudoku' && G.mode !== 'online') { startSudoku(G.daily ? 'medium' : G.sd.level, null); return; }
   if (G.s && G.s.game === 'patta') return startPatta(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
+  if (G.s && G.s.game === 'zerokanta') return startZK(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })).reverse());
+  if (G.s && G.s.game === 'archery') return startArchery(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })).reverse());
   if (G.s && G.s.game === 'chess') return startChess(G.mode, G.s.players.map(p => ({ id: p.id, name: p.name, kind: p.kind, look: p.look, tint: p.tint })));
   const again = G.s.players.map(p => ({ id: p.id, name: p.name, color: p.color, kind: p.kind, look: p.look }));
   if (G.s.game === 'snakes') startSnakes(G.mode, again); else startOffline(G.mode, again);
@@ -2732,9 +2753,9 @@ function endOnline() {
 function syncMicButtons() {
   if (!G || !G.voice) return;
   const on = G.voice.hasMic() && !G.voice.muted;
-  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic', 'hxMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
+  ['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic', 'hxMic', 'zkMic', 'aqMic'].forEach(id => { $(id).innerHTML = on ? MIC : MIC_OFF; $(id).classList.toggle('on', on); });
 }
-['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic', 'hxMic'].forEach(id => $(id).onclick = async () => {
+['lobbyMic', 'gameMic', 'cMic', 'rMic', 'pMic', 'sdMic', 'arMic', 'dMic', 'hxMic', 'zkMic', 'aqMic'].forEach(id => $(id).onclick = async () => {
   if (!G || !G.voice) return;
   if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
   else G.voice.setMuted(!G.voice.muted);
@@ -2745,7 +2766,7 @@ function syncMicButtons() {
 
 function renderLobby() {
   if (!G) return;
-  const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : G.game === 'draw' ? 6 : 4;
+  const L = G.lobby, max = ['chess', 'carrom', 'zerokanta', 'archery'].includes(G.game) ? 2 : G.game === 'draw' ? 6 : 4;
   $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : G.game === 'arrows' ? 'Arrow race' : G.game === 'helix' ? 'Helix race' : G.game === 'draw' ? 'Draw & Guess' : G.game === 'ludo' && G.ctype && G.ctype !== 'classic' ? LMODE_NAME[G.ctype] || 'Ludo' : GAME_NAME[G.game || 'ludo']) + (['sudoku', 'arrows', 'helix'].includes(G.game) ? '' : ' room');
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
@@ -2827,6 +2848,8 @@ async function onNet(m) {
       if (m.s && m.s.game === 'arrows') { onArState(m); break; }
       if (m.s && m.s.game === 'draw') { onDrawState(m); break; }
       if (m.s && m.s.game === 'helix') { onHxState(m); break; }
+      if (m.s && m.s.game === 'zerokanta') { onZKState(m); break; }
+      if (m.s && m.s.game === 'archery') { onAqState(m); break; }
       G.s = m.s; G.turnEnds = m.turnEnds || null; G.busy = false;
       G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.s.over && m.t === 'sync') { finishGame(); break; }
@@ -2863,6 +2886,9 @@ async function onNet(m) {
       break;
     }
     case 'rshot': await onCarromShot(m); break;
+    case 'zmoved': onZKMoved(m); break;
+    case 'znext': G.s = m.s; G.turnEnds = m.turnEnds; renderZK(); zkTurnSound(); break;
+    case 'ashot': await onAqShot(m); break;
     case 'pev': await onPattaEv(m); break;
     case 'sprog': onRaceProg(m); break;
     case 'send': onRaceEnd(m); break;
@@ -2965,7 +2991,7 @@ function colorOf(id) {
 }
 function setBadges() {
   const n = (G && G.unread) || 0;
-  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge', 'sdBadge', 'arBadge', 'hxBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
+  ['chatBadge', 'lobbyBadge', 'cBadge', 'rBadge', 'pBadge', 'sdBadge', 'arBadge', 'hxBadge', 'zkBadge', 'aqBadge'].forEach(id => { $(id).textContent = n > 9 ? '9+' : n; $(id).classList.toggle('show', n > 0); });
 }
 function onChat(m) {
   G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();
@@ -3543,7 +3569,7 @@ async function hubCall(path, body) {
 }
 function myRoomInfo() {
   if (!G || G.mode !== 'online' || !G.code) return null;
-  const max = G.game === 'chess' || G.game === 'carrom' ? 2 : G.game === 'draw' ? 6 : 4;
+  const max = ['chess', 'carrom', 'zerokanta', 'archery'].includes(G.game) ? 2 : G.game === 'draw' ? 6 : 4;
   return { code: G.code, game: G.game, open: !G.s && !G.viewer && (G.lobby || []).length < max, playing: !!G.s };
 }
 async function hubPing() {
@@ -3660,7 +3686,7 @@ renderLangPick();
 $('setLang').addEventListener('click', e => {
   const b = e.target.closest('[data-lang]'); if (!b || b.dataset.lang === (settings.lang || 'en')) return;
   settings.lang = b.dataset.lang; store.set('settings', settings); sfx('click');
-  location.reload();
+  setLang(settings.lang); renderLangPick();
 });
 setLang(settings.lang || 'en');
 
@@ -3718,3 +3744,449 @@ function newTourSheet() {
   };
   draw();
 }
+
+// ---------- Photo crop: drag the corners and edges anywhere, any size ----------
+function openCrop(src, done) {
+  let img = new Image(), square = false, box = null, fit = null;
+  const el = document.createElement('div'); el.className = 'crop'; el.id = 'cropper';
+  el.innerHTML = `<div class="ct"><button id="crNo">✕ Cancel</button><b>Crop your photo</b><button id="crReset">Reset</button></div>
+    <div class="area" id="crArea"><canvas id="crCv"></canvas><div class="box" id="crBox"><div class="g"></div>${['tl', 'tr', 'bl', 'br'].map(k => `<i class="h ${k}" data-h="${k}"></i>`).join('')}${['t', 'b', 'l', 'r'].map(k => `<i class="e ${k}" data-h="${k}"></i>`).join('')}</div></div>
+    <div class="tools"><button class="on" id="crFree"><i>⬚</i>Free</button><button id="crSq"><i>◻</i>Square</button><button id="crRot"><i>↻</i>Rotate</button><button id="crFlip"><i>⇋</i>Flip</button></div>
+    <div class="bot"><div class="prev"><canvas id="crPrev" width="128" height="128"></canvas></div><div class="col grow"><b>Preview</b><small>Drag the corners and edges to crop anywhere</small></div><button class="btn gold sm" id="crOk">Use photo ✓</button></div>`;
+  document.body.appendChild(el);
+  const area = $('crArea'), cv = $('crCv'), bx = $('crBox'), pv = $('crPrev');
+  let work = document.createElement('canvas');
+  const layout = () => {
+    const W = area.clientWidth, H = area.clientHeight, k = Math.min(W / work.width, H / work.height);
+    fit = { x: (W - work.width * k) / 2, y: (H - work.height * k) / 2, w: work.width * k, h: work.height * k, k };
+    cv.width = W * 2; cv.height = H * 2; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    const c = cv.getContext('2d'); c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, W, H); c.drawImage(work, fit.x, fit.y, fit.w, fit.h);
+  };
+  const resetBox = () => { const m = Math.min(fit.w, fit.h) * 0.8; box = { x: fit.x + (fit.w - m) / 2, y: fit.y + (fit.h - m) / 2, w: m, h: m }; draw(); };
+  const clamp = () => {
+    box.w = Math.max(40, Math.min(box.w, fit.w)); box.h = Math.max(40, Math.min(box.h, fit.h));
+    box.x = Math.max(fit.x, Math.min(box.x, fit.x + fit.w - box.w)); box.y = Math.max(fit.y, Math.min(box.y, fit.y + fit.h - box.h));
+  };
+  const draw = () => {
+    Object.assign(bx.style, { left: box.x + 'px', top: box.y + 'px', width: box.w + 'px', height: box.h + 'px' });
+    const c = pv.getContext('2d'), sx = (box.x - fit.x) / fit.k, sy = (box.y - fit.y) / fit.k, sw = box.w / fit.k, sh = box.h / fit.k;
+    const s2 = Math.min(sw, sh); c.clearRect(0, 0, 128, 128);
+    c.drawImage(work, sx + (sw - s2) / 2, sy + (sh - s2) / 2, s2, s2, 0, 0, 128, 128);
+  };
+  const setWork = (fn) => { const n = document.createElement('canvas'); fn(n); work = n; layout(); resetBox(); };
+  img.onload = () => setWork(n => { const max = 1400, k = Math.min(1, max / Math.max(img.width, img.height)); n.width = img.width * k; n.height = img.height * k; n.getContext('2d').drawImage(img, 0, 0, n.width, n.height); });
+  img.src = src;
+  // Dragging: inside the box moves it, corners and edges resize it.
+  let drag = null;
+  bx.addEventListener('pointerdown', e => { e.preventDefault(); bx.setPointerCapture(e.pointerId); drag = { h: e.target.dataset.h || 'move', x: e.clientX, y: e.clientY, b: Object.assign({}, box) }; });
+  bx.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y, b = drag.b, h = drag.h; let n = Object.assign({}, b);
+    if (h === 'move') { n.x = b.x + dx; n.y = b.y + dy; }
+    else {
+      if (h.includes('l')) { n.x = Math.min(b.x + dx, b.x + b.w - 40); n.w = b.w - (n.x - b.x); }
+      if (h.includes('r')) n.w = b.w + dx;
+      if (h.includes('t')) { n.y = Math.min(b.y + dy, b.y + b.h - 40); n.h = b.h - (n.y - b.y); }
+      if (h.includes('b')) n.h = b.h + dy;
+      if (n.x < fit.x) { n.w -= fit.x - n.x; n.x = fit.x; } if (n.y < fit.y) { n.h -= fit.y - n.y; n.y = fit.y; }
+      n.w = Math.min(n.w, fit.x + fit.w - n.x); n.h = Math.min(n.h, fit.y + fit.h - n.y);
+      if (square) { const m = Math.min(n.w, n.h); if (h.includes('l')) n.x += n.w - m; if (h.includes('t')) n.y += n.h - m; n.w = n.h = m; }
+    }
+    box = n; clamp(); draw();
+  });
+  const up = () => { drag = null; };
+  bx.addEventListener('pointerup', up); bx.addEventListener('pointercancel', up);
+  const close = () => el.remove();
+  $('crNo').onclick = () => { sfx('click'); close(); };
+  $('crReset').onclick = () => { sfx('click'); resetBox(); };
+  $('crFree').onclick = () => { square = false; $('crFree').classList.add('on'); $('crSq').classList.remove('on'); sfx('click'); };
+  $('crSq').onclick = () => { square = true; $('crSq').classList.add('on'); $('crFree').classList.remove('on'); const m = Math.min(box.w, box.h); box.w = box.h = m; clamp(); draw(); sfx('click'); };
+  $('crRot').onclick = () => { sfx('click'); const o = work; setWork(n => { n.width = o.height; n.height = o.width; const c = n.getContext('2d'); c.translate(n.width, 0); c.rotate(Math.PI / 2); c.drawImage(o, 0, 0); }); };
+  $('crFlip').onclick = () => { sfx('click'); const o = work; setWork(n => { n.width = o.width; n.height = o.height; const c = n.getContext('2d'); c.translate(n.width, 0); c.scale(-1, 1); c.drawImage(o, 0, 0); }); };
+  $('crOk').onclick = () => {
+    const sx = (box.x - fit.x) / fit.k, sy = (box.y - fit.y) / fit.k, sw = box.w / fit.k, sh = box.h / fit.k;
+    const k = Math.min(1, 360 / Math.max(sw, sh)), o = document.createElement('canvas'); o.width = Math.round(sw * k); o.height = Math.round(sh * k);
+    o.getContext('2d').drawImage(work, sx, sy, sw, sh, 0, 0, o.width, o.height);
+    close(); done(o.toDataURL('image/jpeg', 0.85));
+  };
+  addEventListener('resize', () => { if (el.isConnected) { layout(); resetBox(); } }, { once: true });
+}
+
+// ---------- Game screen banner ----------
+const GB = {
+  ludo: ['#ff4f7a', '#b5003a', 'crowd', 'Ludo', '2-4 players · Walk your team home'],
+  chess: ['#3ddcc8', '#0a7d72', `<span class="gbg">${'&#9819;'}</span><span class="gbg sm">${'&#9822;'}</span>`, 'Chess', '2 players · With move help'],
+  carrom: ['#ffb15a', '#b5530a', 'carrom', 'Carrom', '2 players · 3 ways to play'],
+  snakes: ['#3ddc97', '#0b7a43', 'crowd', 'Snakes & Ladders', '2-4 players · First to 100'],
+  patta: ['#4aa3ff', '#1546b8', 'cards', 'UNO', '2-4 players · Colour & number'],
+  sudoku: ['#ff5fa8', '#a3125e', '<span class="gbe">🔢</span>', 'Sudoku', 'Solo or race · Daily puzzle'],
+  arrows: ['#5ad8ff', '#1479d6', '<span class="gbe">➹</span>', 'Arrow Escape', 'Solo levels or race a friend'],
+  draw: ['#ffd34d', '#c47a00', '<span class="gbe">✏️</span>', 'Draw & Guess', '2-6 players · Draw, friends guess'],
+  helix: ['#ff7ad0', '#8a1a8a', '<span class="gbe">🌀</span>', 'Helix Drop', 'Solo levels or race a friend'],
+  zerokanta: ['#7af0ff', '#1556c8', '<span class="gbe zkx">✕<b>◯</b></span>', 'Zero Kanta', '2 players · Three in a row'],
+  archery: ['#9cff7a', '#1e7a3a', '<span class="gbe">🏹</span>', 'Archery', '1-2 players · Hit the gold']
+};
+function gameBanner(g) {
+  const b = GB[g] || GB.ludo, L = history.filter(h => h.game === g), w = L.filter(h => h.result === 'won').length;
+  const others = [0, 1, 2, 3].filter(x => x !== ch(profile.look));
+  let art = b[2];
+  if (art === 'crowd') art = `<div class="crowd"><img src="img/c${others[0]}-${others[0]}.png"><img class="mid" src="img/c${ch(profile.look)}-${profile.color}.png"><img src="img/c${others[1]}-${others[1]}.png"></div>`;
+  else if (art === 'carrom') art = `<div class="gbcarrom"><svg viewBox="0 0 120 120">${carromPic('classic')}</svg></div>`;
+  else if (art === 'cards') art = `<div class="gbcards">${pcardHtml({ c: 0, v: 7 }, '', 'style="transform:rotate(-14deg)"')}${pcardHtml({ c: 3, v: 'rev' }, '', 'style="transform:rotate(0deg) translateY(-10px)"')}${pcardHtml({ c: 2, v: 'd2' }, '', 'style="transform:rotate(14deg)"')}</div>`;
+  return `<div class="gbanner" style="--g1:${b[0]};--g2:${b[1]}"><div class="bg"></div><div class="rays"></div>
+    <div class="stats">${L.length ? `<span>🏆 ${w} won</span><span>🎮 ${L.length} played</span>` : '<span>✨ Play your first game</span>'}</div>
+    <div class="gart">${art}</div><div class="fade"></div>
+    <div class="ttl"><b class="gtx">${b[3]}</b><small>${b[4]}</small></div></div>`;
+}
+
+// ---------- Home hero banner (slides change by themselves) ----------
+let heroI = 0, heroT = null, heroSlides = [];
+function heroList() {
+  const L = [];
+  const tour = (hub.tours || []).find(t => myMatch(t));
+  if (tour) L.push({ k: 'tour', g: ['#ffb15a', '#e5196f', '#5a1fb5'], tag: '🏆 YOUR TOURNAMENT', t: `${GAME_NAME[tour.game]} Cup`, s: 'Your match is ready', cta: 'Play', art: 'trophy', go: () => { frTab = 'tour'; show('friends'); } });
+  if (isNewG('archery')) L.push({ k: 'ar', g: ['#9cff7a', '#1e9e5a', '#0b3b22'], tag: '✨ NEW GAME', t: 'Archery', s: 'Pull, aim, mind the wind', cta: 'Play', art: 'archery', go: () => openGame('archery') });
+  if (isNewG('zerokanta')) L.push({ k: 'zk', g: ['#7af0ff', '#1556c8', '#1c0a48'], tag: '✨ NEW GAME', t: 'Zero Kanta', s: 'Three in a row wins', cta: 'Play', art: 'zk', go: () => openGame('zerokanta') });
+  if (dailyDue()) L.push({ k: 'daily', g: ['#ffd34d', '#ff7a00', '#a3125e'], tag: '🎁 FREE TODAY', t: 'Daily Spin', s: 'Win up to 500 coins', cta: 'Spin', art: 'wheel', go: () => show('daily') });
+  const P = todayPuzzle();
+  L.push({ k: 'pz', g: ['#3ddcc8', '#0a7d72', '#1c0a48'], tag: eco.puzzleDay === dayNo() ? '✓ SOLVED TODAY' : '🧩 DAILY PUZZLE', t: `Mate in ${P.n}`, s: eco.puzzleDay === dayNo() ? 'New puzzle tomorrow' : 'Solve it for 40 coins', cta: 'Solve', art: 'chess', go: () => { GAME = 'chess'; store.set('game', GAME); startPuzzle(); } });
+  if (!tour) L.push({ k: 'cup', g: ['#ff9a1f', '#e5196f', '#5a1fb5'], tag: '🏆 TOURNAMENT', t: 'Friends Cup', s: '4 or 8 friends · knockout', cta: 'Start', art: 'trophy', go: () => { frTab = 'tour'; show('friends'); } });
+  return L;
+}
+function openGame(g) { GAME = g; store.set('game', GAME); markSeen(g); show('gamehome'); }
+function heroArt(a) {
+  const me = `<img class="hb-me" src="img/c${ch(profile.look)}-${profile.color}.png">`;
+  if (a === 'trophy') return me + '<span class="hb-ic">🏆</span>';
+  if (a === 'archery') return me + '<span class="hb-ic">🎯</span><span class="hb-ic2">🏹</span>';
+  if (a === 'zk') return me + '<span class="hb-ic zk">✕<b>◯</b></span>';
+  if (a === 'wheel') return me + '<span class="hb-ic">🎡</span>';
+  return me + '<span class="hb-ic">♞</span>';
+}
+function renderHero() {
+  heroSlides = heroList(); if (heroI >= heroSlides.length) heroI = 0;
+  $('heroB').innerHTML = `<div class="hb-track" style="transform:translateX(${-heroI * 100}%)">${heroSlides.map(x => `<div class="hb-slide" style="background:radial-gradient(120% 90% at 85% 30%, ${x.g[0]} 0%, ${x.g[1]} 40%, ${x.g[2]} 85%)"><div class="rays"></div><div class="jl"></div>
+    <div class="txt"><span class="tag">${x.tag}</span><h3>${x.t}</h3><p>${x.s}</p></div><button class="cta" data-hb="${x.k}">${x.cta} ▸</button><div class="art">${heroArt(x.art)}</div></div>`).join('')}</div>
+    <div class="dots">${heroSlides.map((x, i) => `<i class="${i === heroI ? 'on' : ''}"></i>`).join('')}</div>`;
+  clearInterval(heroT); heroT = setInterval(() => { if (current === 'home' && !document.hidden) heroGo(heroI + 1); }, 5000);
+}
+function heroGo(i) {
+  heroI = (i + heroSlides.length) % heroSlides.length;
+  const tr = document.querySelector('#heroB .hb-track'); if (tr) tr.style.transform = `translateX(${-heroI * 100}%)`;
+  document.querySelectorAll('#heroB .dots i').forEach((d, k) => d.classList.toggle('on', k === heroI));
+}
+$('heroB').addEventListener('click', e => { const b = e.target.closest('[data-hb]') || e.target.closest('.hb-slide'); if (!b) return; const x = heroSlides[heroI]; if (x) { sfx('click'); x.go(); } });
+{ let sx = null; $('heroB').addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true }); $('heroB').addEventListener('touchend', e => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 40) heroGo(heroI + (dx < 0 ? 1 : -1)); sx = null; }); }
+
+// ---------- First-time guide: highlights one thing at a time ----------
+const GUIDE = [
+  ['#games .arch', 'Pick a game here 🎲', 'Tap any game. Then choose: friends online, the computer, or everyone on one phone.'],
+  ['#heroB', 'Today’s highlights ✨', 'New games, the daily chess puzzle and tournaments show up here.'],
+  ['#ecoDaily', 'Free reward every day 🎁', 'Spin the wheel and keep your login streak to earn coins for the shop.'],
+  ['#bnav [data-nav="friends"]', 'Play with friends 👥', 'Add friends with their code, invite them to your room and start a tournament.'],
+  ['#homeAv', 'Your photo and name 📸', 'Tap here any time to change your photo, name and colour.']
+];
+function startGuide() {
+  store.set('guided', true);
+  const w = document.createElement('div'); w.className = 'welcome';
+  w.innerHTML = `<div class="bub"><b>Namaste ${esc(profile.name)}! 🙏</b><p>I’m ${CHAR_NAME[ch(profile.look)]}. Let me show you Pitara in 30 seconds.</p></div><img src="img/c${ch(profile.look)}-${profile.color}.png" class="wimg"><button class="btn gold" id="gGo">Let’s go ▸</button><button class="btn ghost" id="gSkip">Skip</button>`;
+  document.body.appendChild(w); sfx('turn');
+  $('gGo').onclick = () => { sfx('click'); w.remove(); guideStep(0); };
+  $('gSkip').onclick = () => { sfx('click'); w.remove(); };
+}
+function guideStep(i) {
+  document.querySelectorAll('.guide').forEach(g => g.remove());
+  if (i >= GUIDE.length) { toast('You’re all set. Have fun! 🎉', '#1E9E5A'); return; }
+  const [sel, t, p] = GUIDE[i], el = document.querySelector(sel);
+  if (!el) return guideStep(i + 1);
+  el.scrollIntoView({ block: 'center', behavior: 'instant' });
+  const r = el.getBoundingClientRect(), pad = 6, below = r.top + r.height / 2 < innerHeight / 2;
+  const g = document.createElement('div'); g.className = 'guide';
+  g.innerHTML = `<div class="hole" style="left:${r.left - pad}px;top:${r.top - pad}px;width:${r.width + pad * 2}px;height:${r.height + pad * 2}px;border-radius:${Math.min(26, r.height / 2 + pad)}px"></div>
+    <div class="hand" style="left:${r.left + r.width / 2 - 14}px;top:${below ? r.bottom - 22 : r.top - 30}px">👆</div>
+    <div class="tip ${below ? '' : 'up'}" style="${below ? `top:${r.bottom + 26}px` : `bottom:${innerHeight - r.top + 26}px`}"><i class="arr" style="left:${Math.max(24, Math.min(innerWidth - 70, r.left + r.width / 2 - 34))}px"></i><b>${t}</b><p>${p}</p>
+      <div class="row2"><div class="dots">${GUIDE.map((x, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div><button class="skip">Skip</button><button class="next">${i === GUIDE.length - 1 ? 'Done ✓' : 'Next ▸'}</button></div></div>`;
+  document.body.appendChild(g); sfx('pop');
+  g.querySelector('.next').onclick = () => { sfx('click'); guideStep(i + 1); };
+  g.querySelector('.skip').onclick = () => { sfx('click'); g.remove(); };
+}
+$('setTour').onclick = () => { sfx('click'); show('home'); setTimeout(startGuide, 400); };
+
+// ---------- Two-player setup (Zero Kanta, Archery) ----------
+function levelChips() { return `<div class="lbl">Computer level</div><div class="row gap10">${[['easy', '😊 Easy'], ['medium', '🙂 Medium'], ['hard', '😈 Hard']].map(l => `<button class="lvlbtn ${settings.botLevel === l[0] ? 'on' : ''}" data-blv="${l[0]}">${l[1]}</button>`).join('')}</div>`; }
+function renderDuoSetup() {
+  const bot = setupMode === 'bot', other = [0, 1, 2, 3].filter(x => x !== ch(profile.look))[0];
+  $('setupTitle').textContent = (bot ? 'Play vs computer' : 'Pass & play') + ' · ' + GAME_NAME[GAME];
+  $('setupAsk').textContent = 'Players'; $('setupCount').innerHTML = '';
+  const mark = i => GAME === 'zerokanta' ? `<span class="zkmark ${i ? 'o' : 'x'}">${i ? '◯' : '✕'}</span>` : '';
+  $('setupNames').innerHTML = `<div class="prow">${mark(0)}<b style="font-size:18px">${esc(profile.name)}</b></div>` +
+    (bot ? `<div class="prow">${mark(1)}<b style="font-size:18px">${CHAR_NAME[other]} (computer)</b></div>` : `<div class="prow">${mark(1)}<input class="input" data-pn="1" maxlength="14" value="Player 2"></div>`) +
+    `<span class="small muted">${GAME === 'zerokanta' ? 'Three in a row wins the round. First to 3 rounds wins.' : '5 rounds, one arrow each. The target moves further away every round. Watch the wind!'}</span>`;
+  $('setupLevel').innerHTML = bot ? levelChips() : '';
+}
+function goDuoSetup() {
+  const other = [0, 1, 2, 3].filter(x => x !== ch(profile.look))[0];
+  const me = { id: pid, name: profile.name, kind: 'me', look: profile.look, tint: profile.color };
+  const inp = document.querySelector('[data-pn="1"]');
+  const them = setupMode === 'bot' ? { id: 'bot1', name: CHAR_NAME[other], kind: 'bot', look: other, tint: (profile.color + 2) % 4 } : { id: 'p1', name: (inp && inp.value.trim()) || 'Player 2', kind: 'me', look: other, tint: (profile.color + 2) % 4 };
+  if (GAME === 'zerokanta') startZK(setupMode, [me, them]); else startArchery(setupMode, [me, them]);
+}
+
+// ---------- Zero Kanta ----------
+const ZX = '<svg viewBox="0 0 100 100" class="zkx"><path d="M22 22 L78 78 M78 22 L22 78"/></svg>';
+const ZO = '<svg viewBox="0 0 100 100" class="zko"><circle cx="50" cy="50" r="30"/></svg>';
+function startZK(mode, players) {
+  G = { mode, game: 'zerokanta', s: newZK(players), level: settings.botLevel, busy: false };
+  enterZK(); zkAfter();
+}
+function enterZK() {
+  dropBoard(); dropCBoard(); dropRBoard(); dropHBoard();
+  show('zk'); music(false);
+  $('zkMic').classList.toggle('hide', G.mode !== 'online'); $('zkChat').style.visibility = G.mode === 'online' ? 'visible' : 'hidden';
+  $('zkBoard').innerHTML = Array.from({ length: 9 }, (_, i) => `<button class="zkcell" data-z="${i}" aria-label="Cell ${i + 1}"></button>`).join('') + '<i class="zkline" id="zkLine"></i>';
+  setBadges(); syncMicButtons(); renderZK();
+}
+const zkMe = () => { const s = G.s; if (G.mode === 'local') return s.turn; return s.players.findIndex(p => p.id === pid); };
+function zkCanTap() { const s = G.s; if (!s || s.over || s.roundOver || G.busy) return false; if (G.mode === 'local') return true; return s.turn === zkMe() && (G.mode !== 'online' || !(G.sent && Date.now() - G.sent < 3000)); }
+function renderZK() {
+  if (!G || !G.s || current !== 'zk') return;
+  const s = G.s, me = zkMe();
+  $('zkScore').innerHTML = `<span>Round ${s.round}</span><span>🏆 ${esc(s.players[0].name)} ${s.score[0]} – ${s.score[1]} ${esc(s.players[1].name)}</span>`;
+  $('zkPlayers').innerHTML = s.players.map((p, i) => {
+    const lp = G.mode === 'online' ? (G.lobby || []).find(x => x.pid === p.id) : null;
+    const st = s.over ? (s.winner === i ? 'Winner!' : '') : s.roundOver ? (s.roundWin === i ? 'Won the round!' : '') : s.turn === i ? (p.kind === 'bot' ? 'Thinking...' : (G.mode !== 'local' && i === me) ? 'Your turn' : 'Turn') : p.kind === 'bot' ? 'Computer' : lp && !lp.connected ? 'Waiting for network...' : '';
+    return `${i ? '<span class="vs">VS</span>' : ''}<div class="zkc ${s.turn === i && !s.roundOver && !s.over ? 'turn' : ''}" data-pid="${p.id}">${avatar(p.look, p.tint != null ? p.tint : i * 2, G.speaking && G.speaking.has(p.id) ? 'speak' : '', p.id)}<span class="minw0"><b>${esc(p.name)}${G.mode !== 'local' && i === me ? ' (You)' : ''}</b><small>${st}</small></span><span class="sym ${i ? 'o' : 'x'}">${i ? '◯' : '✕'}</span></div>`;
+  }).join('');
+  document.querySelectorAll('#zkBoard [data-z]').forEach((c, i) => {
+    const v = s.board[i], want = v == null ? '' : v ? 'o' : 'x';
+    if (c.dataset.v !== want) { c.dataset.v = want; c.innerHTML = v == null ? '' : v ? ZO : ZX; if (want) c.classList.add('pop'); }
+    c.classList.toggle('win', !!(s.line && s.line.includes(i)));
+    c.disabled = v != null;
+  });
+  const ln = $('zkLine');
+  if (s.line) {
+    const b = $('zkBoard').getBoundingClientRect(), A = document.querySelector(`#zkBoard [data-z="${s.line[0]}"]`).getBoundingClientRect(), B = document.querySelector(`#zkBoard [data-z="${s.line[2]}"]`).getBoundingClientRect();
+    const x1 = A.left + A.width / 2 - b.left, y1 = A.top + A.height / 2 - b.top, x2 = B.left + B.width / 2 - b.left, y2 = B.top + B.height / 2 - b.top;
+    const ext = 0.32, dx = x2 - x1, dy = y2 - y1;
+    Object.assign(ln.style, { left: (x1 - dx * ext / 2) + 'px', top: (y1 - dy * ext / 2 - 4) + 'px', width: Math.hypot(dx, dy) * (1 + ext) + 'px', transform: `rotate(${Math.atan2(dy, dx)}rad)`, display: 'block' });
+  } else ln.style.display = 'none';
+  const P = s.players[s.turn];
+  $('zkMsg').innerHTML = s.over ? `<b class="gtx">${s.winner == null ? 'Draw!' : esc(s.players[s.winner].name) + ' wins!'}</b>`
+    : s.roundOver ? `<b class="gtx">${s.roundWin == null ? 'No winner this round' : esc(s.players[s.roundWin].name) + ' won the round! 🎉'}</b><small>Next round starting...</small>`
+    : `<b>${G.mode === 'local' ? `${esc(P.name)}’s turn (${s.turn ? '◯' : '✕'})` : s.turn === me ? 'Your turn: tap a box' : `${esc(P.name)} is ${P.kind === 'bot' ? 'thinking' : 'playing'}...`}</b>${G.turnEnds && !s.roundOver ? `<small class="zkclk" id="zkClk"></small>` : ''}`;
+}
+$('zkBoard').addEventListener('click', e => {
+  const c = e.target.closest('[data-z]'); if (!c || !G || !zkCanTap()) return;
+  const i = +c.dataset.z; if (G.s.board[i] != null) return;
+  if (G.mode === 'online') { if (G.net.send({ t: 'zmove', cell: i })) G.sent = Date.now(); return; }
+  zkPlay(G.s.turn, i);
+});
+function zkPlay(who, i) {
+  const ev = zkMove(G.s, who, i); if (!ev) return;
+  zkFx(ev); renderZK(); zkAfter();
+}
+function zkFx(ev) {
+  if (!ev || ev.left != null) return;
+  sfx(ev.who ? 'pop' : 'click'); buzz(20);
+  if (ev.roundOver) { if (ev.line) { sfx(ev.over ? 'win' : 'finish'); buzz([40, 30, 80]); } else sfx('step'); }
+}
+function zkTurnSound() { if (G && G.s && !G.s.roundOver && G.mode === 'online' && G.s.turn === zkMe()) sfx('turn'); }
+function zkAfter() {
+  const s = G.s;
+  if (s.over) { setTimeout(() => { if (G && G.s === s) finishZK(); }, 1600); return; }
+  if (s.roundOver) { G.busy = true; setTimeout(() => { if (!G || G.s !== s) return; zkNext(s); G.busy = false; renderZK(); zkAfter(); }, 1800); return; }
+  const P = s.players[s.turn];
+  if (P.kind === 'bot') { G.busy = true; renderZK(); setTimeout(() => { if (!G || G.s !== s) return; G.busy = false; zkPlay(s.turn, zkBot(s, s.turn, G.level)); }, 650 + Math.random() * 500); }
+}
+function onZKState(m) {
+  G.s = m.s; G.turnEnds = m.turnEnds || null; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  if (current !== 'zk') enterZK(); else renderZK();
+  if (m.s.over && m.t === 'sync') finishZK(); else zkTurnSound();
+}
+function onZKMoved(m) {
+  G.s = m.s; G.turnEnds = m.turnEnds || null; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; }); G.sent = 0;
+  if (m.ev && m.ev.left != null) note('Player left the game'); else zkFx(m.ev);
+  if (m.ev && m.ev.timeout) note('Time up! A box was picked for them');
+  renderZK(); zkTurnSound();
+  if (G.s.over) setTimeout(() => { if (G && G.s && G.s.over) finishZK(); }, 1400);
+}
+setInterval(() => { const el = $('zkClk'); if (el && G && G.turnEnds) { const sec = Math.max(0, Math.ceil((G.turnEnds - Date.now()) / 1000)); el.textContent = `⏱ ${sec}s`; } }, 500);
+function finishZK() {
+  if (!G || !G.s || current === 'win') return;
+  const s = G.s, me = G.mode === 'local' ? -1 : s.players.findIndex(p => p.id === pid);
+  const W = s.winner == null ? null : s.players[s.winner], iWon = me >= 0 && s.winner === me;
+  if (me >= 0) addHistory({ game: 'zerokanta', mode: G.mode, result: s.winner == null ? 'draw' : iWon ? 'won' : 'lost', of: 2, score: `${s.score[me]}–${s.score[1 - me]} rounds`, opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint != null ? p.tint : 2 })) });
+  $('winTitle').textContent = !W ? 'Draw!' : iWon ? 'You won!' : `${W.name} won!`;
+  $('winSub').textContent = s.reason === 'left' ? 'The other player left the game' : `Rounds ${s.score[0]} – ${s.score[1]}`;
+  const A = W || s.players[0], Lo = s.players.find(p => p !== A);
+  danceStage({ look: A.look, tint: A.tint != null ? A.tint : 0, name: A.name }, Lo ? [{ look: Lo.look, tint: Lo.tint != null ? Lo.tint : 2 }] : []);
+  winShow();
+}
+function winShow() {
+  $('winRest').innerHTML = '';
+  const cc = ['#E0103A', '#00C853', '#FFD600', '#1E5EF0', '#FF4FD8', '#FFFFFF', '#FFC21A'];
+  $('winConf').innerHTML = Array.from({ length: 40 }, (_, i) => `<i style="left:${(i * 97) % 100}%;background:${cc[i % 7]};animation-duration:${2.5 + (i % 5) * 0.6}s;animation-delay:${(i % 10) * 0.25}s"></i>`).join('');
+  $('winAgain').style.display = G.mode === 'online' ? (G.host ? 'flex' : 'none') : 'flex';
+  buzz([60, 40, 60, 40, 120]);
+  show('win'); startDance();
+}
+$('zkBack').onclick = () => leaveGame();
+$('zkSound').onclick = () => $('gameSound').onclick();
+$('zkChat').onclick = () => { sfx('click'); openChat(); };
+
+// ---------- Archery ----------
+// Hold anywhere and drag to aim, let go to shoot. Holding too long makes the hand shake.
+// The wind pushes the arrow sideways, so aim a little into the wind.
+const AQ_COL = ['#ff3d7a', '#1f6fff'];
+function startArchery(mode, players) {
+  G = { mode, game: 'archery', s: newArchery(players), level: settings.botLevel, busy: false };
+  enterArchery(); aqNext();
+}
+function enterArchery() {
+  dropBoard(); dropCBoard(); dropRBoard(); dropHBoard();
+  show('aq'); music(false);
+  $('aqMic').classList.toggle('hide', G.mode !== 'online'); $('aqChat').style.visibility = G.mode === 'online' ? 'visible' : 'hidden';
+  G.aqRound = 0; setBadges(); syncMicButtons(); aqDraw();
+}
+const aqMe = () => (G.mode === 'local' ? G.s.turn : G.s.players.findIndex(p => p.id === pid));
+// Builds the scene for the round (the target is further away each round) and the scoreboard.
+function aqDraw() {
+  if (!G || !G.s || current !== 'aq') return;
+  const s = G.s, d = archeryDist(s), w = archeryWind(s);
+  if (G.aqRound !== s.round) {
+    G.aqRound = s.round; G.T = targetAt(d);
+    $('aqScene').innerHTML = sceneSvg(d, w);
+    $('aqScope').innerHTML = `<svg viewBox="0 0 120 120" style="stroke:none"><rect width="120" height="120" fill="#cfa45a"/>${targetFace(60, 60, 56, 1, true)}<g id="aqScopeHits"></g><g id="aqScopeRet"><circle r="5" fill="none" stroke="#39ff7a" stroke-width="2"/><path d="M0 -12 v6 M0 6 v6 M-12 0 h6 M6 0 h6" stroke="#39ff7a" stroke-width="2"/></g></svg><small>ZOOM ×${Math.round(120 / (G.T.R * 2) * 2.4)}</small>`;
+    G.aim = { x: G.T.cx + (Math.random() - .5) * G.T.R, y: G.T.cy + G.T.R * 0.7 };
+    aqRet();
+  }
+  // Arrows of this round stay in the target.
+  const hits = [], sh = [];
+  s.shots.forEach((L, who) => L.filter(x => x.round === s.round).forEach(x => { hits.push(stuckArrow(G.T.cx + x.x * G.T.R, G.T.cy + x.y * G.T.R * G.T.persp, AQ_COL[who], G.T.R)); sh.push(`<circle cx="${60 + x.x * 56}" cy="${60 + x.y * 56}" r="2.6" fill="${AQ_COL[who]}" stroke="#fff" stroke-width="1"/>`); }));
+  $('aqHits').innerHTML = hits.join(''); const sc = $('aqScopeHits'); if (sc) sc.innerHTML = sh.join('');
+  const me = aqMe();
+  $('aqHud').innerHTML = s.players.map((p, i) => `<div class="pl glass ${i ? 'r' : ''} ${s.turn === i && !s.over ? 'on' : ''}" data-pid="${p.id}">${avatar(p.look, p.tint != null ? p.tint : i * 2, G.speaking && G.speaking.has(p.id) ? 'speak' : '', p.id)}<span class="minw0"><b>${esc(p.name)}</b><span class="sh">${Array.from({ length: A_ROUNDS }, (_, k) => { const x = s.shots[i][k]; return `<i class="${!x ? '' : x.pts >= 9 ? 'g' : x.pts >= 7 ? 'rd' : x.pts >= 5 ? 'bl' : 'w'}">${x ? x.pts : ''}</i>`; }).join('')}</span></span><span class="tot">${s.total[i]}</span></div>`).join('');
+  const P = s.players[s.turn], mine = G.mode === 'local' ? P.kind !== 'bot' : s.turn === me;
+  $('aqRound').textContent = s.over ? 'Match over' : `🏹 Round ${s.round} / ${A_ROUNDS} · ${d} m · ${mine && G.mode !== 'local' ? 'Your arrow' : P.name + '’s arrow'}`;
+  const ws = Math.abs(w).toFixed(1);
+  $('aqWind').innerHTML = `<svg class="dial" viewBox="0 0 54 54"><circle cx="27" cy="27" r="24" fill="none" stroke="#ffffff33" stroke-width="3"/><g transform="rotate(${w >= 0 ? 90 : -90} 27 27)"><path d="M27 8 L33 30 L27 26 L21 30Z" fill="#7af0ff"/></g></svg><b>${ws}</b><small>Wind km/h ${w > 0.2 ? '→' : w < -0.2 ? '←' : ''}</small>`;
+  $('aqTip').textContent = s.over ? '' : mine ? (G.aiming ? 'Let go to shoot!' : '👆 Hold, drag to aim, let go') : P.kind === 'bot' ? `${P.name} is aiming...` : `${P.name} is aiming...`;
+  $('aqTip').style.display = s.over ? 'none' : '';
+}
+function aqRet() {
+  const r = $('aqRet'); if (!r || !G.aim) return;
+  const sw = G.sway || { x: 0, y: 0 }, x = G.aim.x + sw.x, y = G.aim.y + sw.y;
+  r.setAttribute('transform', `translate(${x} ${y})`);
+  const sr = $('aqScopeRet'); if (sr) sr.setAttribute('transform', `translate(${60 + (x - G.T.cx) / G.T.R * 56} ${60 + (y - G.T.cy) / (G.T.R * G.T.persp) * 56})`);
+}
+function aqCanAim() { const s = G && G.s; if (!s || s.over || G.busy || current !== 'aq') return false; const P = s.players[s.turn]; if (G.mode === 'local') return P.kind !== 'bot'; return s.turn === aqMe(); }
+// Touch: SVG coordinates of a finger.
+function aqPt(e) { const svg = $('aqSvg'), p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); }
+let aqLoop = null;
+$('aqScene').addEventListener('pointerdown', e => {
+  if (!aqCanAim()) return;
+  e.preventDefault(); $('aqScene').setPointerCapture(e.pointerId);
+  G.aiming = { t0: performance.now(), last: aqPt(e) }; sfx('click');
+  $('aqBow').classList.add('drawn'); $('aqTip').textContent = 'Let go to shoot!';
+  cancelAnimationFrame(aqLoop);
+  const tick = () => {
+    if (!G || !G.aiming) return;
+    const t = (performance.now() - G.aiming.t0) / 1000;
+    // Steady for about 2.5 s, then the hand starts to shake more and more.
+    const amp = (0.08 + Math.max(0, t - 2.5) * 0.35) * G.T.R * 0.5;
+    G.sway = { x: amp * (Math.sin(t * 1.7) + 0.5 * Math.sin(t * 4.3 + 1)), y: amp * (Math.cos(t * 1.3) + 0.5 * Math.sin(t * 3.7)) };
+    $('aqSteady').style.height = Math.max(4, 100 - Math.max(0, t - 2.5) * 30) + '%';
+    aqRet(); aqLoop = requestAnimationFrame(tick);
+  };
+  tick();
+});
+$('aqScene').addEventListener('pointermove', e => {
+  if (!G || !G.aiming) return;
+  const p = aqPt(e), k = 0.55;
+  G.aim.x = Math.max(20, Math.min(370, G.aim.x + (p.x - G.aiming.last.x) * k));
+  G.aim.y = Math.max(200, Math.min(640, G.aim.y + (p.y - G.aiming.last.y) * k));
+  G.aiming.last = p; aqRet();
+});
+const aqUp = () => {
+  if (!G || !G.aiming) return;
+  const held = performance.now() - G.aiming.t0; G.aiming = null; cancelAnimationFrame(aqLoop);
+  $('aqBow').classList.remove('drawn'); $('aqSteady').style.height = '100%';
+  if (held < 450) { G.sway = null; aqRet(); note('Hold a little longer to pull the bow'); aqDraw(); return; }
+  const s = G.s, d = archeryDist(s), w = archeryWind(s), sw = G.sway || { x: 0, y: 0 };
+  const x = (G.aim.x + sw.x - G.T.cx) / G.T.R + aDrift(w, d), y = (G.aim.y + sw.y - G.T.cy) / (G.T.R * G.T.persp);
+  G.sway = null;
+  if (G.mode === 'online') { if (G.net.send({ t: 'ashot', x, y })) { G.busy = true; G.sent = Date.now(); setTimeout(() => { if (G && G.sent && Date.now() - G.sent > 3900) G.busy = false; }, 4000); } return; }
+  aqShoot(s.turn, x, y);
+};
+$('aqScene').addEventListener('pointerup', aqUp); $('aqScene').addEventListener('pointercancel', aqUp);
+async function aqShoot(who, x, y) {
+  const s = G.s, ev = archeryShot(s, who, x, y); if (!ev) return;
+  await aqFly(ev); aqNext();
+}
+// The arrow flies from the bow into the target, then the score pops up.
+function aqFly(ev) {
+  return new Promise(res => {
+    if (!G || current !== 'aq') return res();
+    G.busy = true; sfx('dice');
+    const T = G.T, tx = T.cx + ev.x * T.R, ty = T.cy + ev.y * T.R * T.persp, fly = $('aqFly'), col = AQ_COL[ev.who];
+    $('aqArrow').style.opacity = '0';
+    const t0 = performance.now(), dur = 520;
+    const step = () => {
+      const k = Math.min(1, (performance.now() - t0) / dur), e = 1 - Math.pow(1 - k, 2);
+      const x = 195 + (tx - 195) * e, y = 760 + (ty - 760) * e - Math.sin(k * Math.PI) * 40, sc = 1 - 0.85 * e;
+      fly.innerHTML = `<g transform="translate(${x} ${y}) scale(${sc})"><line x1="0" y1="0" x2="0" y2="120" stroke="#333" stroke-width="5"/><path d="M0 -8 L-6 6 L6 6Z" fill="#ccc"/><path d="M0 100 l-10 20 l10 -5z M0 100 l10 20 l-10 -5z" fill="${col}"/></g>`;
+      if (k < 1) requestAnimationFrame(step);
+      else {
+        fly.innerHTML = ''; $('aqArrow').style.opacity = '';
+        sfx(ev.pts >= 9 ? 'capture' : 'step'); buzz(ev.pts >= 9 ? [30, 20, 60] : 25);
+        if (G.s.shots[ev.who].length) { const h = $('aqHits'); if (h) h.insertAdjacentHTML('beforeend', stuckArrow(tx, ty, col, T.R)); }
+        const pop = $('aqPop'), lab = ev.pts === 10 ? 'BULLSEYE!' : ev.pts === 0 ? 'Miss' : ev.pts >= 8 ? 'Great shot!' : ev.pts >= 5 ? 'Good' : 'Close';
+        pop.innerHTML = `<b class="${ev.pts >= 9 ? 'gtx' : ''}" style="${ev.pts < 9 ? `color:${ev.pts === 0 ? '#ff8ab4' : '#fff'}` : ''}">${ev.pts === 0 ? '✕' : ev.pts}</b><small>${esc(G.s.players[ev.who].name)} · ${lab}</small>`;
+        pop.classList.remove('show'); void pop.offsetWidth; pop.classList.add('show');
+        setTimeout(() => { if (G) { G.busy = false; } res(); }, 1300);
+      }
+    };
+    step();
+  });
+}
+function aqNext() {
+  if (!G || !G.s) return;
+  const s = G.s; aqDraw();
+  if (s.over) { setTimeout(() => { if (G && G.s === s) finishArchery(); }, 900); return; }
+  if (G.mode === 'local') note(`${s.players[s.turn].name}: your arrow`);
+  const P = s.players[s.turn];
+  if (P.kind === 'bot' && G.mode !== 'online') {
+    G.busy = true;
+    const sh = archeryBot(s, G.level), w = archeryWind(s), d = archeryDist(s);
+    // Show the computer's aim moving onto the target before it shoots.
+    const from = Object.assign({}, G.aim), to = { x: G.T.cx + (sh.x - aDrift(w, d)) * G.T.R, y: G.T.cy + sh.y * G.T.R * G.T.persp }, t0 = performance.now();
+    const step = () => { if (!G || G.s !== s) return; const k = Math.min(1, (performance.now() - t0) / 1400), e = k * k * (3 - 2 * k); G.aim = { x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e }; aqRet(); if (k < 1) requestAnimationFrame(step); else setTimeout(() => { if (G && G.s === s) { G.busy = false; aqShoot(s.turn, sh.x, sh.y); } }, 350); };
+    setTimeout(step, 500);
+  } else if (G.mode === 'online' && s.turn === aqMe()) sfx('turn');
+}
+function onAqState(m) {
+  G.s = m.s; G.turnEnds = m.turnEnds || null; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  if (current !== 'aq') enterArchery(); else aqDraw();
+  if (m.s.over && m.t === 'sync') finishArchery(); else aqNext();
+}
+async function onAqShot(m) {
+  if (m.ev && m.ev.left != null) { G.s = m.s; note('Player left the game'); aqDraw(); setTimeout(finishArchery, 900); return; }
+  G.sent = 0; G.s.turn = m.ev.who;
+  await aqFly(m.ev);
+  G.s = m.s; G.turnEnds = m.turnEnds || null; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
+  if (m.ev.timeout) note('Time up!');
+  aqNext();
+}
+function finishArchery() {
+  if (!G || !G.s || current === 'win') return;
+  const s = G.s, me = G.mode === 'local' ? -1 : s.players.findIndex(p => p.id === pid);
+  const W = s.winner == null ? null : s.players[s.winner], iWon = me >= 0 && s.winner === me;
+  if (me >= 0) addHistory({ game: 'archery', mode: G.mode, result: s.winner == null ? 'draw' : iWon ? 'won' : 'lost', of: 2, score: `${s.total[me]}–${s.total[1 - me]} pts`, opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.tint != null ? p.tint : 2 })) });
+  $('winTitle').textContent = !W ? 'Draw!' : iWon ? 'You won!' : `${W.name} won!`;
+  $('winSub').textContent = s.reason === 'left' ? 'The other player left the game' : `Points ${s.total[0]} – ${s.total[1]}`;
+  const A = W || s.players[0], Lo = s.players.find(p => p !== A);
+  danceStage({ look: A.look, tint: A.tint != null ? A.tint : 0, name: A.name }, Lo ? [{ look: Lo.look, tint: Lo.tint != null ? Lo.tint : 2 }] : []);
+  winShow();
+}
+$('aqBack').onclick = () => leaveGame();
+$('aqSound').onclick = () => $('gameSound').onclick();
+$('aqChat').onclick = () => { sfx('click'); openChat(); };
