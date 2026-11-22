@@ -1,0 +1,27 @@
+// Friends hub: codes, adding, online, invites, weekly wins.
+import { Hub, codeOf, weekId } from '../server/src/hub.js';
+const store = new Map();
+const hub = new Hub({ storage: { get: async k => store.get(k), put: async (k, v) => { store.set(k, v); } } });
+let ok = true; const check = (c, m) => { if (!c) { ok = false; console.error('FAIL', m); } };
+const call = async (path, body) => (await hub.fetch(new Request('https://hub/hub/' + path, { method: 'POST', body: JSON.stringify(body) }))).json();
+const A = 'a'.repeat(20), B = 'b'.repeat(20);
+const a = await call('hello', { key: A, name: 'Suraj', look: 1 });
+const b = await call('hello', { key: B, name: 'Shivu', look: 0, room: { code: 'ABCDE', game: 'ludo', open: true } });
+check(a.me.code === await codeOf(A) && a.me.code.length === 6, 'friend code');
+check((await call('add', { key: A, code: 'ZZZZZZ' })).error, 'unknown code');
+check((await call('add', { key: A, code: a.me.code })).error, 'own code');
+check((await call('add', { key: A, code: b.me.code })).ok, 'add friend');
+const a2 = await call('hello', { key: A, name: 'Suraj' });
+check(a2.friends.length === 1 && a2.friends[0].online && a2.friends[0].room.code === 'ABCDE', 'friend online in a room');
+const b2 = await call('hello', { key: B, name: 'Shivu' });
+check(b2.friends.length === 1 && b2.friends[0].name === 'Suraj', 'friendship goes both ways');
+await call('invite', { key: A, to: b.me.code, room: 'QWERT', game: 'carrom' });
+const b3 = await call('hello', { key: B, name: 'Shivu' });
+check(b3.inbox.length === 1 && b3.inbox[0].room === 'QWERT' && b3.inbox[0].name === 'Suraj', 'invite arrives');
+check((await call('hello', { key: B, name: 'Shivu' })).inbox.length === 0, 'invite delivered once');
+await call('result', { key: A, won: true }); await call('result', { key: A, won: false });
+const b4 = await call('hello', { key: B, name: 'Shivu' });
+check(b4.friends[0].w === 1 && b4.friends[0].p === 2, 'weekly wins');
+check(weekId(Date.UTC(2026, 10, 23, 0, 0)) === weekId(Date.UTC(2026, 10, 29, 18, 0)) && weekId(Date.UTC(2026, 10, 22, 18, 0)) !== weekId(Date.UTC(2026, 10, 23, 0, 0)), 'week starts Monday (India)');
+check((await call('hello', { key: 'short' })).error, 'bad key');
+console.log(ok ? 'hub ok' : 'hub FAILED'); process.exit(ok ? 0 : 1);

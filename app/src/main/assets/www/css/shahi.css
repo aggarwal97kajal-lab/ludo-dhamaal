@@ -885,3 +885,53 @@ body.fr-fr5 .av.mine, body.fr-fr5 .medal, .av.fr-fr5 { background: conic-gradien
 .teamtag.a { background: #1E9E5A; color: #fff; }
 .teamtag.b { background: #e5196f; color: #fff; }
 #gameRoom.hurry { color: #ff8ab4; animation: vblink 1s infinite; }
+/* ---------- Chess daily puzzle ---------- */
+.pzcard { display: flex; align-items: center; gap: 14px; padding: 12px; border: none; border-radius: 20px; text-align: left; color: #fff4d6; background: linear-gradient(135deg, #0fb5a5, #0a6d64 60%, #063b36); box-shadow: 0 0 0 2px #ffd34d, 0 10px 18px rgba(0, 0, 0, .4); flex-shrink: 0; }
+.pzcard.done { background: linear-gradient(135deg, #3a5a58, #1d3533); }
+.pzboard { width: 96px; height: 96px; flex-shrink: 0; display: grid; grid-template-columns: repeat(8, 1fr); border-radius: 8px; overflow: hidden; box-shadow: 0 0 0 3px #5a3500, 0 6px 10px rgba(0, 0, 0, .4); }
+.pzboard i { background: #f1d9b0; display: flex; align-items: center; justify-content: center; }
+.pzboard i.d { background: #b07a48; }
+.pzboard b { font-size: 10.5px; line-height: 1; }
+.pzboard b.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 1px #000; }
+.pzboard b.k { color: #1a1a1a; }
+.pzcard b { font-size: 22px; line-height: 1.1; }
+.pzcard small { font-size: 12px; color: #e0fffa; }
+.pztag { font-weight: 800; color: #ffe17a !important; }
+.pzrun { color: #ffd34d !important; font-weight: 800; }
+/* ---------- Friends & this week ---------- */
+.btn.sm { width: auto; min-height: 0; height: 38px; padding: 0 16px; font-size: 14px; border-radius: 14px; flex-shrink: 0; }
+.bnav .pill { position: relative; }
+.bnav .badge { position: absolute; top: -2px; right: 4px; }
+.fcode { display: flex; align-items: center; gap: 12px; }
+.fcode > i { font-style: normal; font-size: 28px; }
+.fcode b { font-size: 17px; }
+.fcode small { font-size: 11.5px; color: #cdbdf5; }
+.codepill { border: none; padding: 6px 14px; border-radius: 16px; font-weight: 800; font-size: 18px; letter-spacing: 1px; color: #ffe17a; background: #12072e; box-shadow: 0 0 0 2px #d99100; }
+.flist { padding: 4px 12px !important; }
+.frow { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.frow + .frow { border-top: 1px solid rgba(255, 211, 77, .14); }
+.frow.off { opacity: .62; }
+.frow b { font-size: 16px; }
+.frow small { font-size: 12px; color: #cdbdf5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.frow .rk { width: 22px; color: #ffe17a; }
+.frow b.gold { color: #ffe17a; font-size: 15px; }
+.favw { position: relative; flex-shrink: 0; }
+.favw .av, .frow > .av { width: 50px; height: 50px; }
+.ondot { position: absolute; right: 0; bottom: 2px; width: 13px; height: 13px; border-radius: 50%; background: #1fe07a; box-shadow: 0 0 0 2.5px #1c0a48, 0 0 8px #1fe07a; }
+.panel.empty { display: flex; flex-direction: column; gap: 4px; text-align: center; }
+.panel.empty small { color: #cdbdf5; }
+.codein { text-align: center; font-size: 26px; letter-spacing: 6px; font-weight: 800; text-transform: uppercase; }
+.err { color: #ff8ab4; min-height: 18px; font-size: 13px; margin: 4px 0; }
+.wkpod { display: grid; grid-template-columns: 1fr 1.15fr 1fr; align-items: end; gap: 8px; margin-top: 10px; flex-shrink: 0; }
+.wkcol { display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; }
+.wkcol .medal { width: 70px; height: 70px; padding: 3px; }
+.wkcol .medal .av { width: 100%; height: 100%; padding: 0; }
+.wkcol.p1 .medal { width: 88px; height: 88px; }
+.wkcrown { font-size: 30px; margin-bottom: -6px; }
+.wkcol > b { font-size: 15px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wkblock { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 16px 16px 6px 6px; color: #3a1d00; }
+.wkblock span { font-size: 30px; font-weight: 800; line-height: 1; }
+.wkblock small { font-size: 12px; font-weight: 800; }
+.wkcol.p1 .wkblock { height: 120px; background: var(--goldgrad); }
+.wkcol.p2 .wkblock { height: 92px; background: linear-gradient(180deg, #ffffff, #c9c6d8); }
+.wkcol.p3 .wkblock { height: 76px; background: linear-gradient(180deg, #ffd9b0, #c07a3c); }

@@ -1,0 +1,1 @@
+export const PUZZLES = [{ fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1', sol: ['a1a8'], n: 1 }];

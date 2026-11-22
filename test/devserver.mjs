@@ -2,12 +2,17 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { Room } from '../server/src/index.js';
+import { Hub } from '../server/src/hub.js';
+const store = new Map();
+const hub = new Hub({ storage: { get: async k => store.get(k), put: async (k, v) => { store.set(k, JSON.parse(JSON.stringify(v))); } } });
 const rooms = new Map();
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const room = code => { if (!rooms.has(code)) { const r = new Room({}, {}); r.code = code; rooms.set(code, r); } return rooms.get(code); };
 const srv = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.url === '/new') { let c = ''; for (let i = 0; i < 5; i++) c += CHARS[Math.floor(Math.random() * CHARS.length)]; room(c).claimed = true; res.end(JSON.stringify({ code: c })); return; }
+  if (req.method === 'OPTIONS') { res.setHeader('Access-Control-Allow-Headers', 'content-type'); res.end(); return; }
+  if (req.url.startsWith('/hub/')) { let body = ''; req.on('data', d => { body += d; }); req.on('end', async () => { const r = await hub.fetch(new Request('https://hub' + req.url, { method: 'POST', body })); res.setHeader('content-type', 'application/json'); res.end(await r.text()); }); return; }
   if (req.url === '/turn') { res.end(JSON.stringify({ iceServers: [] })); return; }
   res.end('{"ok":true}');
 });

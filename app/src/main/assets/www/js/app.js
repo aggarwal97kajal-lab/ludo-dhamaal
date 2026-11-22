@@ -16,6 +16,7 @@ import { makeTower, platformsFor } from './helix.js';
 import { Helix3D } from './helix3d.js';
 import { makePuzzle, dailySeed, peers as sdPeers, LEVELS as SD_LEVELS, LEVEL_NAME as SD_NAME, MAX_MISTAKES as SD_MAX } from './sudoku.js';
 import { newPatta, playCard, drawCard, passTurn as pattaPass, sayEk, catchEk, timeout as pattaTimeout, pattaBot, playable as pattaPlayable, canPlay as pattaCanPlay, top as pattaTop, label as pattaLabel, ranking as pattaRanking, COLORS as PCOLORS } from './patta.js';
+import { PUZZLES } from './puzzles.js';
 import { newChess, chessMove, chessTimeout, chessPlayer, chessBot, chessResultText, CLOCK_MS, other } from './chessrules.js';
 
 const $ = id => document.getElementById(id);
@@ -75,10 +76,11 @@ function show(id) {
   if (id === 'daily') renderDaily();
   if (id === 'shop') renderShop();
   if (id === 'badges') renderBadges();
+  if (id === 'friends') { renderFriends(); hubPing(); $('navFriendsDot').classList.remove('show'); }
   if (id === 'win') winExtras();
   if (id === 'home') { renderCoins(); setDailyDot(); }
   updateVStrip();
-  const nav = ['home', 'history', 'hgame', 'shop', 'badges', 'daily'].includes(id) || (id === 'profile' && !!profile);
+  const nav = ['home', 'history', 'hgame', 'shop', 'badges', 'daily', 'friends'].includes(id) || (id === 'profile' && !!profile);
   $('bnav').classList.toggle('show', nav);
   document.querySelectorAll('#bnav [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === (id === 'hgame' ? 'history' : id)));
 }
@@ -445,7 +447,7 @@ function renderModes() {
       <button class="sdmode blue" data-mode="join"><span class="col grow"><b>Join a room</b><small>Enter your friend’s room code</small></span></button>`;
     music(true); return;
   }
-  $('modes').innerHTML = GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : GAME === 'ludo' ? ludoModesHtml() + `<div class="modegrid">${list}</div>` : list;
+  $('modes').innerHTML = GAME === 'chess' ? puzzleCardHtml() + list : GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : GAME === 'ludo' ? ludoModesHtml() + `<div class="modegrid">${list}</div>` : list;
   music(true);
 }
 // Ludo: four ways to play, picked above the play buttons.
@@ -486,6 +488,7 @@ $('modes').addEventListener('click', e => {
   const sm = e.target.closest('[data-sdmode]'); if (sm) { sfx('click'); sudokuMode(sm.dataset.sdmode); return; }
   const hm = e.target.closest('[data-hxmode]'); if (hm) { sfx('click'); startHelix(settings.hxLevel || 1); return; }
   const am = e.target.closest('[data-armode]'); if (am) { sfx('click'); arrowMode(am.dataset.armode); return; }
+  if (e.target.closest('[data-puzzle]')) { sfx('click'); startPuzzle(); return; }
   const lm = e.target.closest('[data-lmode]'); if (lm) { settings.ludoMode = lm.dataset.lmode; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const ct = e.target.closest('[data-ctype]'); if (ct) { settings.carromMode = ct.dataset.ctype; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const sk = e.target.closest('[data-stk]'); if (sk) { settings.striker = +sk.dataset.stk; store.set('settings', settings); eco.use.st = 'st' + settings.striker; saveEco(); sfx('click'); if (rboard) rboard.setStrikerStyle(settings.striker); renderModes(); return; }
@@ -1020,7 +1023,7 @@ function enterChess() {
   b.setPosition(G.s.fen); b.clearMarks();
   b.setLast(G.s.last); setChessCheck();
   b.view(chessViewSide(), false);
-  $('cRoom').textContent = G.mode === 'online' ? 'Chess · Room ' + G.code : (G.mode === 'bot' ? 'Chess · Vs computer' : 'Chess · Pass & play');
+  $('cRoom').textContent = G.puzzle ? `Daily puzzle · Mate in ${G.puzzle.n}` : G.mode === 'online' ? 'Chess · Room ' + G.code : (G.mode === 'bot' ? 'Chess · Vs computer' : 'Chess · Pass & play');
   $('cMic').classList.toggle('hide', G.mode !== 'online');
   $('cChat').style.visibility = G.mode === 'online' ? 'visible' : 'hidden';
   $('cHelp').checked = settings.chessHelp;
@@ -1112,7 +1115,7 @@ function nextChess() {
   const s = G.s;
   renderChessCards();
   if (s.over) { setTimeout(finishChess, 1000); return; }
-  G.turnStart = Date.now(); G.turnEnds = Date.now() + s.clock[s.turn];
+  G.turnStart = Date.now(); G.turnEnds = G.puzzle ? null : Date.now() + s.clock[s.turn];
   const p = chessPlayer(s, s.turn);
   if (G.mode === 'local' && s.moves > 0) cboard.view(s.turn, true);
   if (p.kind === 'bot') {
@@ -1182,6 +1185,7 @@ function sendChessMove(mv) {
 }
 async function playChess(mv) {
   const s = G.s;
+  if (G.puzzle && chessPlayer(s, s.turn).kind === 'me' && !puzzleOk(mv)) return;
   G.busy = true;
   const spent = Date.now() - (G.turnStart || Date.now());
   const r = chessMove(s, mv, spent);
@@ -1232,6 +1236,7 @@ function onChessEnd(m) {
 }
 function finishChess() {
   if (!G || !G.s) return;
+  if (G.puzzle) return puzzleSolved();
   const s = G.s;
   const meColor = G.mode === 'online' ? (s.players.find(p => p.id === pid) || {}).color : (G.mode === 'bot' ? (s.players.find(p => p.kind === 'me') || {}).color : null);
   const res = chessResultText(s, meColor);
@@ -2674,7 +2679,7 @@ function openRoom(code) {
   G.voice.setListen(settings.listen);
   G.voice.setVoiceVolume(vol.voice / 100); G.voice.setMicVolume(vol.mic / 50);
   G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (PLAY_SCREENS.includes(current)) renderCards(); };
-  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: GAME === 'sudoku' ? settings.sdLevel : GAME === 'ludo' ? settings.ludoMode : settings.carromMode, pw: '', watch: false, fr: eco.use.fr });
+  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: GAME === 'sudoku' ? settings.sdLevel : GAME === 'ludo' ? settings.ludoMode : settings.carromMode, pw: '', watch: false, fr: eco.use.fr, fc: hub.me ? hub.me.code : null });
   roomPhotos.clear();
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
@@ -3386,6 +3391,9 @@ function renderBadges() {
 // Coins for every finished game.
 function rewardGame(h) {
   const won = h.result === 'won', n = won ? (h.mode === 'online' ? 30 : 20) : 5;
+  hubCall('result', { won }).catch(() => {});
+  // Playing online together once makes you friends.
+  if (h.mode === 'online' && G && G.lobby) G.lobby.forEach(p => { if (p.fc && p.pid !== pid && hub.me && !hub.friends.some(f => f.code === p.fc)) hubCall('add', { code: p.fc }).then(() => hubPing()).catch(() => {}); });
   eco.lastEarn = { n, at: Date.now(), won, h };
   addCoins(n); checkBadges();
 }
@@ -3452,3 +3460,176 @@ $('ecoDaily').onclick = () => { sfx('click'); show('daily'); };
 $('ecoShop').onclick = () => { sfx('click'); show('shop'); };
 $('ecoBadges').onclick = () => { sfx('click'); show('badges'); };
 applyLooks(); checkBadges(); renderCoins(); setDailyDot();
+
+// ---------- Chess daily puzzle ----------
+// One puzzle a day, the same for everyone. Every puzzle has exactly one winning first move.
+const dayNo = () => Math.floor((Date.now() + 5.5 * 36e5) / 864e5);
+const todayPuzzle = () => PUZZLES[dayNo() % PUZZLES.length];
+function puzzleCardHtml() {
+  const P = todayPuzzle(), done = eco.puzzleDay === dayNo(), side = P.fen.split(' ')[1] === 'w' ? 'White' : 'Black';
+  return `<button class="pzcard ${done ? 'done' : ''}" data-puzzle="1"><div class="pzboard">${miniBoard(P.fen)}</div><span class="col grow"><small class="pztag">${done ? '✓ Solved today' : '🧩 Daily puzzle'}</small><b>Mate in ${P.n}</b><small>${side} to play. ${done ? 'Come back tomorrow for a new one' : 'Solve it for +40 coins'}</small>${eco.puzzleRun ? `<small class="pzrun">🔥 ${eco.puzzleRun} day streak</small>` : ''}</span></button>`;
+}
+function miniBoard(fen) {
+  const rows = fen.split(' ')[0].split('/'), G2 = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
+  let h = '';
+  rows.forEach((r, y) => { let x = 0; for (const c of r) { if (/\d/.test(c)) { for (let k = 0; k < +c; k++) { h += `<i class="${(x + y) % 2 ? 'd' : ''}"></i>`; x++; } } else { h += `<i class="${(x + y) % 2 ? 'd' : ''}"><b class="${c === c.toUpperCase() ? 'w' : 'k'}">${G2[c.toLowerCase()]}</b></i>`; x++; } } });
+  return h;
+}
+function startPuzzle() {
+  const P = todayPuzzle(), side = P.fen.split(' ')[1];
+  const me = { id: pid, name: profile.name, kind: 'me', look: profile.look, tint: profile.color };
+  const otherLook = [0, 1, 2, 3].find(x => x !== ch(profile.look));
+  const them = { id: 'bot1', name: CHAR_NAME[otherLook], kind: 'bot', look: otherLook, tint: (profile.color + 2) % 4 };
+  G = { mode: 'bot', game: 'chess', s: newChess(side === 'w' ? [me, them] : [them, me]), busy: false, puzzle: { n: P.n, left: P.n, sol: P.sol, tries: 0, at: Date.now() } };
+  G.s.fen = P.fen; G.s.turn = side;
+  enterChess(); nextChess();
+  note(`Find checkmate in ${P.n} move${P.n > 1 ? 's' : ''}`);
+}
+// The first move must be the one that forces mate; the last move must give checkmate.
+function puzzleOk(mv) {
+  const g = new Chess(G.s.fen), r = g.move({ from: mv.from, to: mv.to, promotion: mv.promotion || 'q' });
+  if (!r) return false;
+  const ok = G.puzzle.left === 1 ? g.in_checkmate() : (r.from + r.to) === G.puzzle.sol[0].slice(0, 4);
+  if (!ok) {
+    G.puzzle.tries++; cboard.clearMarks(); G.sel = null; buzz([60, 40, 60]); sfx('capture');
+    note(G.puzzle.tries >= 3 ? `Hint: move the piece on ${G.puzzle.left === G.puzzle.n ? G.puzzle.sol[0].slice(0, 2) : 'the board that can check'}` : 'Not this one. Try again!');
+    return false;
+  }
+  G.puzzle.left--;
+  return true;
+}
+function puzzleSolved() {
+  const first = eco.puzzleDay !== dayNo();
+  if (first) {
+    eco.puzzleRun = eco.puzzleDay === dayNo() - 1 ? (eco.puzzleRun || 0) + 1 : 1;
+    eco.puzzleDay = dayNo(); saveEco();
+    G.recorded = false;
+    addHistory({ game: 'chess', mode: 'puzzle', result: 'won', of: 1, score: `Daily puzzle · Mate in ${G.puzzle.n}`, opp: [] });
+    addCoins(20, 'puzzle bonus');
+  }
+  sfx('win'); buzz([60, 40, 120]);
+  const secs = Math.round((Date.now() - G.puzzle.at) / 1000);
+  modal(`<div class="sheethead">🧩</div><h3>Puzzle solved!</h3><p>Checkmate in ${G.puzzle.n} · ${secs}s${G.puzzle.tries ? ` · ${G.puzzle.tries} wrong tr${G.puzzle.tries > 1 ? 'ies' : 'y'}` : ' · first try!'}${first ? '<br>+40 coins' : ''}${eco.puzzleRun > 1 ? `<br>🔥 ${eco.puzzleRun} days in a row` : ''}</p><button class="btn gold" id="mOk">Done</button>`);
+  $('mOk').onclick = () => { closeModal(); G = null; show('gamehome'); };
+}
+
+// ---------- Friends (friend code, online, invites, this week) ----------
+let hubKey = store.get('hubkey', null);
+if (!hubKey) { const b = new Uint8Array(18); crypto.getRandomValues(b); hubKey = Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); store.set('hubkey', hubKey); }
+const hub = Object.assign({ me: null, friends: [], seenInv: {} }, store.get('hubcache', {}));
+let frTab = 'list', hubPhotoSent = false;
+async function hubCall(path, body) {
+  const base = Net.serverBase(); if (!base) throw new Error('offline');
+  const r = await fetch(base + '/hub/' + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ key: hubKey }, body || {})) });
+  return r.json();
+}
+function myRoomInfo() {
+  if (!G || G.mode !== 'online' || !G.code) return null;
+  const max = G.game === 'chess' || G.game === 'carrom' ? 2 : G.game === 'draw' ? 6 : 4;
+  return { code: G.code, game: G.game, open: !G.s && !G.viewer && (G.lobby || []).length < max, playing: !!G.s };
+}
+async function hubPing() {
+  if (!profile || !Net.serverBase()) return;
+  try {
+    const body = { name: profile.name, look: profile.look, tint: profile.color, fr: eco.use.fr, room: myRoomInfo() };
+    if (!hubPhotoSent) { body.photo = myPhoto ? await squarePhoto(myPhoto, 48).catch(() => null) : null; }
+    const r = await hubCall('hello', body);
+    if (!r || !r.me) return;
+    hubPhotoSent = true;
+    hub.me = r.me; hub.friends = r.friends || [];
+    store.set('hubcache', { me: hub.me, friends: hub.friends });
+    (r.inbox || []).forEach(gotInvite);
+    if (current === 'friends') renderFriends();
+  } catch (e) { /* no network: try again later */ }
+}
+setInterval(() => { if (!document.hidden || (G && G.mode === 'online')) hubPing(); }, 25000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) hubPing(); });
+setTimeout(hubPing, 1500);
+const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : m < 2880 ? 'yesterday' : `${Math.round(m / 1440)} days ago`; };
+function friendAv(f, cls) {
+  return `<div class="av ${cls || ''} ${f.fr && f.fr !== 'fr0' ? 'fr-' + f.fr : ''}">${f.photo ? `<div class="in photo" style="background:${UI[f.tint || 0]}"><img src="${f.photo}" alt=""></div>` : `<div class="in" style="background:${UI[f.tint || 0]}"><img src="${face(f.look, f.tint || 0)}" alt=""></div>`}</div>`;
+}
+function friendStatus(f) {
+  if (!f.online) return `Last seen ${f.seen ? ago(f.seen) : 'long ago'}`;
+  if (f.room && f.room.playing) return `Playing ${GAME_NAME[f.room.game] || 'a game'}`;
+  if (f.room) return `In a ${GAME_NAME[f.room.game] || ''} room`;
+  return 'In Pitara home';
+}
+function renderFriends() {
+  document.querySelectorAll('#frTabs [data-ft]').forEach(b => b.classList.toggle('on', b.dataset.ft === frTab));
+  const code = hub.me ? hub.me.code : '······';
+  if (frTab === 'week') return renderWeek();
+  const on = hub.friends.filter(f => f.online), off = hub.friends.filter(f => !f.online);
+  const inRoom = myRoomInfo();
+  const row = f => `<div class="frow ${f.online ? '' : 'off'}"><div class="favw">${friendAv(f)}${f.online ? '<i class="ondot"></i>' : ''}</div>
+    <div class="col grow minw0"><b>${esc(f.name)}</b><small>${friendStatus(f)}</small></div>
+    ${f.room && f.room.open && f.online && (!inRoom || inRoom.code !== f.room.code) ? `<button class="btn gold sm" data-fjoin="${f.room.code}" data-fgame="${f.room.game}">Join</button>`
+      : inRoom && inRoom.open ? `<button class="btn gold sm" data-finv="${f.code}">Invite</button>`
+      : `<button class="btn ghost sm" data-fping="${f.code}">${f.online ? 'Invite' : 'Ping'}</button>`}</div>`;
+  $('frBody').innerHTML = `<div class="panel fcode"><i>🔗</i><span class="col grow"><b>Your friend code</b><small>Share it, or play online once together to become friends</small></span><button class="codepill" id="frCopy">${code}</button></div>
+    <button class="btn wa" id="frShare"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 21l2.1-5.5A8.4 8.4 0 1 1 21 11.5z"/></svg>Share my code on WhatsApp</button>
+    ${hub.friends.length ? '' : '<div class="panel empty"><b>No friends yet</b><small>Tap “+ Add” and type a friend’s code, or send them yours.</small></div>'}
+    ${on.length ? `<div class="sec">Online now · ${on.length}</div><div class="panel flist">${on.map(row).join('')}</div>` : ''}
+    ${off.length ? `<div class="sec">Offline</div><div class="panel flist">${off.map(row).join('')}</div>` : ''}`;
+}
+function renderWeek() {
+  const me = hub.me ? Object.assign({}, hub.me, { name: 'You', photo: myPhoto ? null : null, look: profile.look, tint: profile.color, fr: eco.use.fr, isMe: true }) : null;
+  const all = hub.friends.concat(me ? [me] : []).sort((a, b) => b.w - a.w || b.p - a.p);
+  const meAv = f => f.isMe ? `<div class="av mine">${faceImg(profile.look, profile.color, pid)}</div>` : friendAv(f);
+  const pod = [all[1], all[0], all[2]];
+  $('frBody').innerHTML = `<span class="small muted center">Wins this week with friends · starts again on Monday</span>
+    <div class="wkpod">${pod.map((f, i) => f ? `<div class="wkcol p${[2, 1, 3][i]}">${i === 1 ? '<span class="wkcrown">👑</span>' : ''}<div class="medal nogem">${meAv(f)}</div><b>${esc(f.name)}</b><div class="wkblock"><span>${[2, 1, 3][i]}</span><small>${f.w} win${f.w === 1 ? '' : 's'}</small></div></div>` : '<div class="wkcol"></div>').join('')}</div>
+    ${all.length > 3 ? `<div class="panel flist">${all.slice(3).map((f, i) => `<div class="frow"><b class="rk">${i + 4}</b>${meAv(f)}<b class="grow">${esc(f.name)}</b><b class="gold">${f.w} wins</b></div>`).join('')}</div>` : ''}
+    ${hub.friends.length ? '' : '<div class="panel empty"><b>Add friends to compete</b><small>Everyone’s wins this week show up here.</small></div>'}`;
+}
+$('frTabs').addEventListener('click', e => { const b = e.target.closest('[data-ft]'); if (b) { frTab = b.dataset.ft; sfx('click'); renderFriends(); } });
+$('frAddBtn').onclick = () => {
+  sfx('click');
+  modal(`<h3>Add a friend</h3><p>Type your friend’s 6-letter code. They can find it in their Friends tab.</p><input class="input codein" id="frIn" maxlength="6" placeholder="ABC123" autocapitalize="characters" autocomplete="off"><p class="err" id="frErr"></p><button class="btn gold" id="mOk">Add friend</button><button class="btn ghost" id="mNo">Cancel</button>`);
+  $('frIn').focus(); $('mNo').onclick = closeModal;
+  $('mOk').onclick = async () => {
+    const c = $('frIn').value.trim().toUpperCase(); if (c.length !== 6) { $('frErr').textContent = 'The code has 6 letters or numbers'; return; }
+    try { const r = await hubCall('add', { code: c }); if (r.error) { $('frErr').textContent = r.error; return; } closeModal(); toast(`${r.friend.name} is now your friend!`, '#1E9E5A'); sfx('win'); await hubPing(); }
+    catch (e) { $('frErr').textContent = 'No internet. Try again.'; }
+  };
+};
+$('frBody').addEventListener('click', async e => {
+  if (e.target.closest('#frCopy')) { if (window.LDNative && window.LDNative.copy) window.LDNative.copy(hub.me.code); else if (navigator.clipboard) navigator.clipboard.writeText(hub.me.code).catch(() => {}); toast('Code copied', '#3A2490'); return; }
+  if (e.target.closest('#frShare')) { const t = `Add me on Pitara! My friend code: ${hub.me ? hub.me.code : ''}\nOpen Pitara → Friends → + Add\n\nGet Pitara: https://ludo-dhamaal.pitaragames.workers.dev/download`; if (window.LDNative && window.LDNative.shareWhatsApp) window.LDNative.shareWhatsApp(t); else location.href = 'https://wa.me/?text=' + encodeURIComponent(t); return; }
+  const j = e.target.closest('[data-fjoin]'); if (j) { sfx('click'); joinFriendRoom(j.dataset.fjoin, j.dataset.fgame); return; }
+  const iv = e.target.closest('[data-finv]'); if (iv) { sendInvite(iv.dataset.finv, iv); return; }
+  const pg = e.target.closest('[data-fping]'); if (pg) { sendInvite(pg.dataset.fping, pg); return; }
+});
+async function sendInvite(code, btn) {
+  const r = myRoomInfo();
+  try { await hubCall('invite', { to: code, room: r && r.open ? r.code : null, game: r ? r.game : GAME }); sfx('pop'); if (btn) { btn.textContent = 'Sent ✓'; btn.disabled = true; } toast(r && r.open ? 'Invite sent' : 'Ping sent: they’ll see you want to play', '#1E9E5A'); }
+  catch (e) { toast('No internet. Try again.', '#E0103A'); }
+}
+function joinFriendRoom(code, game) {
+  if (game && GAME_NAME[game]) { GAME = game; store.set('game', GAME); }
+  if (!netReady()) return;
+  openRoom(code);
+}
+// An invite arrives: show it (or a phone notification if Pitara is in the background).
+function gotInvite(iv) {
+  const key = iv.from + (iv.room || '') + iv.at; if (hub.seenInv[key]) return; hub.seenInv[key] = 1;
+  const what = iv.room ? `${GAME_NAME[iv.game] || 'a game'} room` : 'a game';
+  const title = iv.room ? `${iv.name} invited you` : `${iv.name} wants to play!`;
+  if (document.hidden && window.LDNative && window.LDNative.notify) { window.LDNative.notify(title, iv.room ? `Tap to join the ${what}` : 'Open Pitara and play together', iv.room ? 'room:' + iv.room : ''); return; }
+  sfx('turn'); buzz([60, 40, 60]);
+  $('navFriendsDot').textContent = '!'; $('navFriendsDot').classList.add('show');
+  if (G && (PLAY_SCREENS.includes(current) || current === 'lobby')) { toast(`${title} · ${what}`, '#8a5600'); return; }
+  modal(`<div class="sheethead">🎮</div><h3>${esc(title)}</h3><p>${iv.room ? `Join their ${esc(what)} now?` : 'Open a room and invite them, or say hi.'}</p>
+    ${iv.room ? '<button class="btn gold" id="mOk">Join</button>' : '<button class="btn gold" id="mOk">Open Friends</button>'}<button class="btn ghost" id="mNo">Later</button>`);
+  $('mNo').onclick = closeModal;
+  $('mOk').onclick = () => { closeModal(); if (iv.room) joinFriendRoom(iv.room, iv.game); else show('friends'); };
+}
+// Invite from the room
+$('lobbyInvite').onclick = () => {
+  sfx('click');
+  if (!hub.friends.length) { modal('<h3>No friends yet</h3><p>Add friends in the Friends tab (their 6-letter code), or share the room on WhatsApp.</p><button class="btn gold" id="mOk">OK</button>'); $('mOk').onclick = closeModal; return; }
+  const list = hub.friends.slice().sort((a, b) => b.online - a.online);
+  modal(`<h3>Invite friends</h3><div class="panel flist vlist">${list.map(f => `<div class="frow ${f.online ? '' : 'off'}"><div class="favw">${friendAv(f)}${f.online ? '<i class="ondot"></i>' : ''}</div><div class="col grow minw0"><b>${esc(f.name)}</b><small>${friendStatus(f)}</small></div><button class="btn gold sm" data-inv2="${f.code}">Invite</button></div>`).join('')}</div><button class="btn ghost mt12" id="mOk">Done</button>`);
+  $('mOk').onclick = closeModal;
+  $('modalBox').querySelectorAll('[data-inv2]').forEach(b => b.onclick = () => sendInvite(b.dataset.inv2, b));
+};

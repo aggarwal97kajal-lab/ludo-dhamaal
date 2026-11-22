@@ -23,8 +23,12 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'], viewers: true, ludoModes: true, v: 11 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'], viewers: true, ludoModes: true, friends: true, v: 12 });
     if (url.pathname === '/turn') return turn(env);
+    if (url.pathname.startsWith('/hub/') && req.method === 'POST') {
+      const r = await env.HUB.get(env.HUB.idFromName('hub')).fetch(new Request('https://hub' + url.pathname, { method: 'POST', body: await req.text() }));
+      return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json', ...CORS } });
+    }
     if (url.pathname === '/download') return Response.redirect(APK, 302);
     if (url.pathname === '/.well-known/assetlinks.json') return json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: PKG, sha256_cert_fingerprints: CERTS } }]);
     const link = url.pathname.match(/^\/r\/([A-Za-z0-9]{5})\/?$/);
@@ -70,9 +74,11 @@ function randomCode() { const b = new Uint8Array(5); crypto.getRandomValues(b); 
 function rollDie() { const b = new Uint8Array(1); do { crypto.getRandomValues(b); } while (b[0] >= 252); return (b[0] % 6) + 1; }
 const REACTS = ['👏', '😂', '🔥', '😮', '😡', '❤️', '🎉', '😭'];
 const MAX_VIEWERS = 10;
+const cleanFc = c => (/^[A-Z2-9]{6}$/.test(String(c)) ? String(c) : null);
 const cleanFr = f => (/^fr[0-5]$/.test(String(f)) ? String(f) : 'fr0');
 const clean = s => String(s || '').replace(/[<>]/g, '').trim().slice(0, 14) || 'Player';
 
+export { Hub } from './hub.js';
 export class Room {
   constructor(state, env) {
     this.state = state; this.env = env;
@@ -148,7 +154,7 @@ export class Room {
   wsOf(pid) { for (const [ws, p] of this.sockets) if (p === pid) return ws; return null; }
 
   lobby() {
-    this.all({ t: 'lobby', code: this.code, game: this.game, mode: this.mode || 'classic', host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host, fr: p.fr })), viewers: this.viewers.map(v => ({ pid: v.pid, name: v.name, look: v.look, mic: v.mic, seat: !!v.seat, fr: v.fr })), opts: { pw: !!this.opts.pw, viewers: this.opts.viewers, vtalk: this.opts.vtalk, bots: this.opts.bots } });
+    this.all({ t: 'lobby', code: this.code, game: this.game, mode: this.mode || 'classic', host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host, fr: p.fr, fc: p.fc })), viewers: this.viewers.map(v => ({ pid: v.pid, name: v.name, look: v.look, mic: v.mic, seat: !!v.seat, fr: v.fr })), opts: { pw: !!this.opts.pw, viewers: this.opts.viewers, vtalk: this.opts.vtalk, bots: this.opts.bots } });
   }
 
   onMsg(ws, raw) {
@@ -227,13 +233,13 @@ export class Room {
       if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'arrows' || this.game === 'helix' ? 'race' : this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : this.game === 'ludo' ? (LUDO_MODES.includes(m.mode) ? m.mode : 'classic') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
       const max = this.game === 'chess' || this.game === 'carrom' ? 2 : this.game === 'draw' ? DRAW_MAX : 4;
       if (this.players.length >= max) return this.opts.viewers ? this.send(ws, { t: 'err', code: 'full', msg: `This room is full (${max} players).`, fatal: true }) : this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
-      p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false, fr: cleanFr(m.fr) };
+      p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false, fr: cleanFr(m.fr), fc: cleanFc(m.fc) };
       this.players.push(p);
       if (!this.host) this.host = pid;
     } else {
       if (p.left) return this.send(ws, { t: 'err', msg: 'You left this game.', fatal: true });
       const old = this.wsOf(pid); if (old && old !== ws) { this.sockets.delete(old); try { old.close(); } catch (e) { /* ignore */ } }
-      p.connected = true; p.name = clean(m.name) || p.name; p.fr = cleanFr(m.fr);
+      p.connected = true; p.name = clean(m.name) || p.name; p.fr = cleanFr(m.fr); p.fc = cleanFc(m.fc) || p.fc;
     }
     this.sockets.set(ws, pid);
     if (this.emptyTimer) { clearTimeout(this.emptyTimer); this.emptyTimer = null; }
