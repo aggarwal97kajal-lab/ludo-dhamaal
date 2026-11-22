@@ -3299,7 +3299,7 @@ $('shopGrid').addEventListener('click', e => {
 // Badges
 const BADGES = [
   ['first', '🏆', 'First win', 'Win any game', (L, w) => w.length >= 1],
-  ['fire', '🔥', 'On fire', '5 wins in a row', () => stats().streak >= 5 || (eco.bestRun || 0) >= 5],
+  ['fire', '🔥', 'On fire', '5 wins in a row', L => bestRun(L) >= 5],
   ['chess', '♞', 'Checkmate!', 'Win at Chess', (L, w) => w.some(h => h.game === 'chess')],
   ['uno', '👑', 'UNO King', 'Win 10 UNO', (L, w) => w.filter(h => h.game === 'patta').length >= 10],
   ['ludo', '🎲', 'Ludo legend', 'Win 25 Ludo', (L, w) => w.filter(h => h.game === 'ludo').length >= 25],
@@ -3317,9 +3317,14 @@ const BADGES = [
   ['shop', '🛍️', 'Shopper', 'Buy something in the shop', () => (eco.bought || 0) >= 1],
   ['raja', '🤴', 'Maharaja', 'Reach level 15', (L, w) => levelOf(w.length).lv >= 15]
 ];
+// Longest run of wins anywhere in the history (not only the latest one).
+function bestRun(L) {
+  let best = 0, run = 0;
+  for (let i = L.length - 1; i >= 0; i--) { const r = L[i].result; if (r === 'won') { run++; best = Math.max(best, run); } else if (r === 'lost') run = 0; }
+  return best;
+}
 function checkBadges() {
   const L = history, w = L.filter(h => h.result === 'won');
-  eco.bestRun = Math.max(eco.bestRun || 0, stats().streak);
   const fresh = BADGES.filter(b => !eco.badges[b[0]] && b[4](L, w));
   fresh.forEach(b => { eco.badges[b[0]] = Date.now(); });
   saveEco();
