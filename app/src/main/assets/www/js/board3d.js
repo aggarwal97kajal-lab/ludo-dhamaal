@@ -342,6 +342,7 @@ export class Board3D {
 
   // World position for a token, spreading tokens that share a square.
   spot(color, idx, p, tokens) {
+    if (p === -2) return [0, -40, 0, 0.001]; // not used in this game (quick mode)
     if (p === -1) { const h = HOME[color], o = SPOTS[idx]; return [h[0] + o[0], 0.27, h[1] + o[1], 1]; }
     if (p === 56) { const f = FIN[color]; const o = [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]][idx]; return [f[0] + o[0] * 0.8, 0.14, f[1] + o[1] * 0.8, 0.6]; }
     const cell = cellOf(color, p);
@@ -367,6 +368,7 @@ export class Board3D {
       p.position.set(s[0], s[1], s[2]); p.scale.setScalar(PS * s[3]);
       p.userData.base = s[1];
       const q = tokens[c][i];
+      p.visible = q !== -2;
       if (q >= 0 && q < 56) {
         const a = cellOf(c, q), b = cellOf(c, Math.min(q + 1, 55));
         p.userData.yaw = (q === 55 || (a[0] === b[0] && a[1] === b[1])) ? Math.atan2(-s[0], -s[2]) : Math.atan2(b[0] - a[0], b[1] - a[1]);

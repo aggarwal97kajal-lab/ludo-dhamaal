@@ -1,5 +1,5 @@
 // Pitara online server (Ludo, Chess, Snakes & Ladders): one Durable Object per room.
-import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf, markLeft, botChoice } from '../../app/src/main/assets/www/js/rules.js';
+import { newGame, roll, move, passTurn, movableTokens, seatColors, playerOf, markLeft, botChoice, LUDO_MODES, timeUp } from '../../app/src/main/assets/www/js/rules.js';
 import { newChess, chessMove, chessTimeout, chessLeft, chessPlayer } from '../../app/src/main/assets/www/js/chessrules.js';
 import { newSnakes, snakeRoll, snakePass } from '../../app/src/main/assets/www/js/snakes.js';
 import { newCarrom, applyShot, carromPass, carromLeft, cleanShot } from '../../app/src/main/assets/www/js/carrom.js';
@@ -23,7 +23,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'], viewers: true, v: 10 });
+    if (url.pathname === '/' || url.pathname === '/health') return json({ ok: true, app: 'pitara', games: ['ludo', 'chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'], viewers: true, ludoModes: true, v: 11 });
     if (url.pathname === '/turn') return turn(env);
     if (url.pathname === '/download') return Response.redirect(APK, 302);
     if (url.pathname === '/.well-known/assetlinks.json') return json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: PKG, sha256_cert_fingerprints: CERTS } }]);
@@ -70,6 +70,7 @@ function randomCode() { const b = new Uint8Array(5); crypto.getRandomValues(b); 
 function rollDie() { const b = new Uint8Array(1); do { crypto.getRandomValues(b); } while (b[0] >= 252); return (b[0] % 6) + 1; }
 const REACTS = ['👏', '😂', '🔥', '😮', '😡', '❤️', '🎉', '😭'];
 const MAX_VIEWERS = 10;
+const cleanFr = f => (/^fr[0-5]$/.test(String(f)) ? String(f) : 'fr0');
 const clean = s => String(s || '').replace(/[<>]/g, '').trim().slice(0, 14) || 'Player';
 
 export class Room {
@@ -106,6 +107,7 @@ export class Room {
       this.players.forEach(p => { p.connected = false; });
       if (this.s && !this.s.over && !['sudoku', 'arrows', 'draw', 'helix'].includes(this.s.game)) { if (this.s.game === 'chess') this.armChess(); else this.armTurn(); }
       if (this.s && this.s.game === 'patta' && !this.s.over) this.armTurn(PATTA_MS);
+      if (this.s && this.s.endsAt && !this.s.over) this.armClock();
       this.carromRound = r.carromRound || 0;
       if (this.s && this.s.game === 'draw' && !this.s.over) { this.dops = []; setTimeout(() => { if (this.s && this.s.game === 'draw' && !this.s.over) { this.s.phase = 'choose'; this.dReveal('restart'); } }, 2000); }
       this.armEmpty();
@@ -146,7 +148,7 @@ export class Room {
   wsOf(pid) { for (const [ws, p] of this.sockets) if (p === pid) return ws; return null; }
 
   lobby() {
-    this.all({ t: 'lobby', code: this.code, game: this.game, mode: this.mode || 'classic', host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host })), viewers: this.viewers.map(v => ({ pid: v.pid, name: v.name, look: v.look, mic: v.mic, seat: !!v.seat })), opts: { pw: !!this.opts.pw, viewers: this.opts.viewers, vtalk: this.opts.vtalk, bots: this.opts.bots } });
+    this.all({ t: 'lobby', code: this.code, game: this.game, mode: this.mode || 'classic', host: this.host, players: this.players.map(p => ({ pid: p.pid, name: p.name, look: p.look, connected: p.connected, left: !!p.left, mic: p.mic, host: p.pid === this.host, fr: p.fr })), viewers: this.viewers.map(v => ({ pid: v.pid, name: v.name, look: v.look, mic: v.mic, seat: !!v.seat, fr: v.fr })), opts: { pw: !!this.opts.pw, viewers: this.opts.viewers, vtalk: this.opts.vtalk, bots: this.opts.bots } });
   }
 
   onMsg(ws, raw) {
@@ -222,16 +224,16 @@ export class Room {
     if (!p) {
       if (!this.claimed && !this.players.length) return this.send(ws, { t: 'err', msg: 'Room not found. Check the code.', fatal: true });
       // The person who creates the room picks the game. Everyone who joins plays that game.
-      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'arrows' || this.game === 'helix' ? 'race' : this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
+      if (!this.players.length) { this.game = ['chess', 'snakes', 'carrom', 'patta', 'sudoku', 'arrows', 'draw', 'helix'].includes(m.game) ? m.game : 'ludo'; this.mode = this.game === 'arrows' || this.game === 'helix' ? 'race' : this.game === 'sudoku' ? (SUDOKU_LEVELS.includes(m.mode) ? m.mode : 'medium') : this.game === 'ludo' ? (LUDO_MODES.includes(m.mode) ? m.mode : 'classic') : ['classic', 'free', 'disc'].includes(m.mode) ? m.mode : 'classic'; }
       const max = this.game === 'chess' || this.game === 'carrom' ? 2 : this.game === 'draw' ? DRAW_MAX : 4;
       if (this.players.length >= max) return this.opts.viewers ? this.send(ws, { t: 'err', code: 'full', msg: `This room is full (${max} players).`, fatal: true }) : this.send(ws, { t: 'err', msg: `This room is full (${max} players).`, fatal: true });
-      p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false };
+      p = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, connected: true, mic: false, fr: cleanFr(m.fr) };
       this.players.push(p);
       if (!this.host) this.host = pid;
     } else {
       if (p.left) return this.send(ws, { t: 'err', msg: 'You left this game.', fatal: true });
       const old = this.wsOf(pid); if (old && old !== ws) { this.sockets.delete(old); try { old.close(); } catch (e) { /* ignore */ } }
-      p.connected = true; p.name = clean(m.name) || p.name;
+      p.connected = true; p.name = clean(m.name) || p.name; p.fr = cleanFr(m.fr);
     }
     this.sockets.set(ws, pid);
     if (this.emptyTimer) { clearTimeout(this.emptyTimer); this.emptyTimer = null; }
@@ -406,9 +408,10 @@ export class Room {
     }
     const cols = seatColors(ready.length);
     const list = ready.map((p, i) => ({ id: p.pid, name: p.name, color: cols[i], kind: 'remote', look: p.look }));
-    this.s = this.game === 'snakes' ? newSnakes(list) : newGame(list);
+    this.s = this.game === 'snakes' ? newSnakes(list) : newGame(list, this.mode);
     this.moves = [];
     this.armTurn();
+    this.armClock();
     this.all({ t: 'start', s: this.s, turnEnds: this.turnEnds });
     this.lobby();
     this.checkAway();
@@ -587,7 +590,7 @@ export class Room {
   addViewer(ws, pid, m, v) {
     if (!v) {
       if (this.viewers.length >= MAX_VIEWERS) return this.send(ws, { t: 'err', msg: 'Too many people are watching. Try later.', fatal: true });
-      v = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, mic: false, seat: false };
+      v = { pid, name: clean(m.name), look: Number(m.look) >= 0 && Number(m.look) < 8 ? Number(m.look) : 0, tint: Number(m.tint) >= 0 && Number(m.tint) < 4 ? Number(m.tint) : 0, mic: false, seat: false, fr: cleanFr(m.fr) };
       this.viewers.push(v);
     } else {
       const old = this.wsOf(pid); if (old && old !== ws) { this.sockets.delete(old); try { old.close(); } catch (e) { /* ignore */ } }
@@ -634,7 +637,7 @@ export class Room {
     for (const v of this.viewers.slice()) {
       if (!v.seat || this.players.length >= max || !this.wsOf(v.pid)) continue;
       this.viewers = this.viewers.filter(x => x !== v);
-      this.players.push({ pid: v.pid, name: v.name, look: v.look, tint: v.tint, connected: true, mic: v.mic });
+      this.players.push({ pid: v.pid, name: v.name, look: v.look, tint: v.tint, connected: true, mic: v.mic, fr: v.fr });
       this.send(this.wsOf(v.pid), { t: 'viewer', on: false });
       if (!this.host) this.host = v.pid;
     }
@@ -731,6 +734,16 @@ export class Room {
     this.all({ t: 'cmoved', mv: r, s, left: this.chessLeftMs() });
   }
 
+  // Timer Ludo: the game ends when the 10 minutes are up.
+  armClock() {
+    clearTimeout(this.clockTimer);
+    const s = this.s; if (!s || s.over || !s.endsAt) return;
+    this.clockTimer = setTimeout(() => {
+      if (this.s !== s || s.over) return;
+      timeUp(s); this.clearTurn(); this.moves = [];
+      this.all({ t: 'passed', s, reason: 'time', turnEnds: null });
+    }, Math.max(0, s.endsAt - Date.now()));
+  }
   clearTurn() { if (this.turnTimer) clearTimeout(this.turnTimer); this.turnTimer = null; this.turnEnds = null; }
 
   armTurn(ms) {

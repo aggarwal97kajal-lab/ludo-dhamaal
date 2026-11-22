@@ -33,4 +33,30 @@ for (let g = 0; g < 300; g++) {
   }
   assert(st.over, 'game ends ' + g); assert(st.ranks.length === n, 'ranks ' + st.ranks.length + ' vs ' + n);
 }
+
+// Ludo modes
+{
+  const check = assert;
+  const P = n => [0, 1, 2, 3].slice(0, n).map(c => ({ id: 'p' + c, name: 'P' + c, color: c, kind: 'bot' }));
+  const q = R.newGame(P(2), 'quick');
+  check(q.mode === 'quick' && q.tokens[0].join() === '0,0,-2,-2', 'quick: 2 tokens out');
+  R.roll(q, 3); check(R.movableTokens(q, q.turn, 3).join() === '0,1', 'quick: only 2 tokens move');
+  q.tokens[0] = [55, 56, -2, -2]; q.rolled = false; R.roll(q, 1); const ev = R.move(q, 0); check(ev.won && q.over, 'quick: 2 home wins');
+  const t = R.newGame(P(2), 'timer'); check(t.endsAt > Date.now(), 'timer has a clock');
+  t.tokens[1] = [10, -1, -1, -1]; t.tokens[0] = [3, -1, -1, -1]; R.timeUp(t); check(t.over && t.ranks[0] === 1 && R.score(t, 1) === 11, 'time up: most points wins');
+  check(R.newGame(P(3), 'team').mode === 'classic', 'team with 3 falls back');
+  const tm = R.newGame(P(4), 'team');
+  tm.tokens[0] = [56, 56, 56, 56]; tm.players[0].done = true; tm.ranks = [0];
+  tm.tokens[2] = [56, 56, 56, 55]; tm.turn = 2; R.roll(tm, 1); R.move(tm, 3);
+  check(tm.over && tm.winTeam.join() === '2,0', 'team wins when both partners are home');
+  const tc = R.newGame(P(4), 'team'); tc.tokens[0] = [4, -1, -1, -1]; tc.tokens[2] = [31, -1, -1, -1]; tc.turn = 0;
+  R.roll(tc, 1); const e2 = R.move(tc, 0);
+  check(e2 && !e2.captured.length && tc.tokens[2][0] === 31, 'no capturing your partner');
+  // bot levels finish games
+  for (const lv of ['easy', 'hard']) {
+    const g = R.newGame(P(4), 'team'); let n = 0;
+    while (!g.over && n < 20000) { const d = 1 + Math.floor(Math.random() * 6); const rr = R.roll(g, d); if (!rr.moves.length) R.passTurn(g); else R.move(g, R.botChoice(g, g.turn, d, rr.moves, lv)); n++; }
+    check(g.over && g.winTeam && g.winTeam.length === 2, 'team game ends ' + lv);
+  }
+}
 console.log('rules ok');

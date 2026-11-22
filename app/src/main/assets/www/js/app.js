@@ -1,4 +1,4 @@
-import { newGame, roll, move, passTurn, botChoice, seatColors, playerOf, FINISH } from './rules.js';
+import { newGame, roll, move, passTurn, botChoice, seatColors, playerOf, FINISH, homeCount, score as ludoScore, timeUp as ludoTimeUp, partnerOf } from './rules.js';
 import { Board3D } from './board3d.js';
 import { sfx, buzz, music, prefs, unlock, playTrack, stopTrack, trackTime, applyVolumes } from './sound.js';
 import { Net } from './net.js';
@@ -33,7 +33,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('ld:' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 };
 let profile = store.get('profile', null);
-const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', carrom3d: false, striker: 0, sdLevel: 'medium', arLevel: 1, hxLevel: 1 }, store.get('settings', {}));
+const settings = Object.assign({ sound: true, music: true, vibrate: true, automic: false, listen: true, chessHelp: true, carromHelp: true, queenBuzz: true, carromMode: 'classic', ludoMode: 'classic', botLevel: 'medium', carrom3d: false, striker: 0, sdLevel: 'medium', arLevel: 1, hxLevel: 1 }, store.get('settings', {}));
 // Volumes 0-100 (mic: 50 = normal, 100 = twice as loud).
 const vol = Object.assign({ master: 80, music: 60, sfx: 80, win: 90, voice: 100, mic: 50, vib: 70 }, store.get('vol', {}));
 prefs.vol = vol;
@@ -52,7 +52,9 @@ let myPhoto = store.get('photo', null);
 const roomPhotos = new Map();
 const photoOf = id => !id ? null : id === pid ? myPhoto : roomPhotos.get(id) || null;
 const faceImg = (look, color, id) => { const ph = photoOf(id); return ph ? `<div class="in photo" style="background:${UI[color]}"><img src="${ph}" alt=""></div>` : `<div class="in" style="background:${UI[color]}"><img src="${face(look, color)}" alt=""></div>`; };
-const avatar = (look, color, cls, id) => `<div class="av ${cls || ''} ${id && id === pid ? 'mine' : ''}">${faceImg(look, color, id)}</div>`;
+// Other people's frames come from the room (they bought them in their own shop).
+const frameOf = id => { let g = null; try { g = G; } catch (e) { return ''; } if (!id || id === pid || !g || !g.lobby) return ''; const G2 = g; const p = G2.lobby.concat(G2.viewers || []).find(x => x.pid === id); return p && p.fr && p.fr !== 'fr0' ? 'fr-' + p.fr : ''; };
+const avatar = (look, color, cls, id) => `<div class="av ${cls || ''} ${id && id === pid ? 'mine' : frameOf(id)}">${faceImg(look, color, id)}</div>`;
 
 // ---------- Screens ----------
 let current = 'splash';
@@ -226,6 +228,8 @@ function sendMyPhoto() {
 let history = store.get('history', []);
 // Photos of people you played with online, small copies kept on this phone for the history list.
 let friendPhotos = store.get('fphotos', {});
+// Solo levels (Arrow Escape, Helix): each cleared level counts as a win.
+function soloLevelWin(game, score) { if (!G) return; G.recorded = false; addHistory({ game, mode: 'solo', result: 'won', of: 1, score, opp: [] }); G.recorded = false; }
 function addHistory(h) {
   if (!G || G.recorded) return;
   G.recorded = true;
@@ -441,8 +445,19 @@ function renderModes() {
       <button class="sdmode blue" data-mode="join"><span class="col grow"><b>Join a room</b><small>Enter your friend’s room code</small></span></button>`;
     music(true); return;
   }
-  $('modes').innerHTML = GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : list;
+  $('modes').innerHTML = GAME === 'carrom' ? carromTypesHtml() + `<div class="modegrid">${list}</div>` : GAME === 'ludo' ? ludoModesHtml() + `<div class="modegrid">${list}</div>` : list;
   music(true);
+}
+// Ludo: four ways to play, picked above the play buttons.
+const LMODES = [
+  ['classic', '🎲', 'Classic', 'All 4 tokens home to win'],
+  ['quick', '⚡', 'Quick Ludo', '2 tokens each, already out. Short games'],
+  ['timer', '⏱', 'Timer Ludo', '10 minutes. Points for steps and captures'],
+  ['team', '🤝', '2 vs 2 Team', 'Partner sits opposite. 4 players, win together']
+];
+const LMODE_NAME = { classic: 'Classic', quick: 'Quick Ludo', timer: 'Timer Ludo', team: '2 vs 2 Team' };
+function ludoModesHtml() {
+  return `<div class="lmodes">${LMODES.map(t => `<button class="lmode ${t[0]} ${settings.ludoMode === t[0] ? 'on' : ''}" data-lmode="${t[0]}"><i>${t[1]}</i><span class="col grow"><b>${t[2]}</b><small>${t[3]}</small></span>${settings.ludoMode === t[0] ? '<em class="tick">✓</em>' : ''}</button>`).join('')}</div>`;
 }
 // Carrom: three ways to play and the striker design, picked above the play buttons.
 const CTYPES = [
@@ -471,6 +486,7 @@ $('modes').addEventListener('click', e => {
   const sm = e.target.closest('[data-sdmode]'); if (sm) { sfx('click'); sudokuMode(sm.dataset.sdmode); return; }
   const hm = e.target.closest('[data-hxmode]'); if (hm) { sfx('click'); startHelix(settings.hxLevel || 1); return; }
   const am = e.target.closest('[data-armode]'); if (am) { sfx('click'); arrowMode(am.dataset.armode); return; }
+  const lm = e.target.closest('[data-lmode]'); if (lm) { settings.ludoMode = lm.dataset.lmode; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const ct = e.target.closest('[data-ctype]'); if (ct) { settings.carromMode = ct.dataset.ctype; store.set('settings', settings); sfx('click'); renderModes(); return; }
   const sk = e.target.closest('[data-stk]'); if (sk) { settings.striker = +sk.dataset.stk; store.set('settings', settings); eco.use.st = 'st' + settings.striker; saveEco(); sfx('click'); if (rboard) rboard.setStrikerStyle(settings.striker); renderModes(); return; }
   const b = e.target.closest('[data-mode]'); if (!b) return; sfx('click');
@@ -484,7 +500,7 @@ $('homeSettings').onclick = () => { sfx('click'); openSettings(); };
 // ---------- Offline setup ----------
 let setupMode = 'bot', setupN = 2, setupSide = 'w';
 function openSetup(m) {
-  setupMode = m; setupN = 2;
+  setupMode = m; setupN = GAME === 'ludo' && settings.ludoMode === 'team' ? 4 : 2;
   $('setupTitle').textContent = m === 'bot' ? 'Play vs computer' : 'Pass & play';
   renderSetup(); show('setup');
 }
@@ -492,15 +508,21 @@ function setupColors() { return seatColors(setupN).map(c => (c + profile.color) 
 function renderSetup() {
   if (GAME === 'chess') return renderChessSetup();
   if (GAME === 'carrom') return renderCarromSetup();
-  $('setupAsk').textContent = 'How many players?';
-  $('setupCount').innerHTML = [2, 3, 4].map(n => `<button class="countbtn ${n === setupN ? 'on' : ''}" data-n="${n}">${n}</button>`).join('');
+  const team = GAME === 'ludo' && settings.ludoMode === 'team';
+  if (team) setupN = 4;
+  $('setupTitle').textContent = (setupMode === 'bot' ? 'Play vs computer' : 'Pass & play') + (GAME === 'ludo' && settings.ludoMode !== 'classic' ? ' · ' + LMODE_NAME[settings.ludoMode] : '');
+  $('setupAsk').textContent = team ? 'Your team: you and your partner (opposite corner)' : 'How many players?';
+  $('setupCount').innerHTML = team ? '' : [2, 3, 4].map(n => `<button class="countbtn ${n === setupN ? 'on' : ''}" data-n="${n}">${n}</button>`).join('');
+  $('setupLevel').innerHTML = setupMode === 'bot' && GAME === 'ludo' ? `<div class="lbl">Computer level</div><div class="row gap10">${[['easy', '😊 Easy'], ['medium', '🙂 Medium'], ['hard', '😈 Hard']].map(l => `<button class="lvlbtn ${settings.botLevel === l[0] ? 'on' : ''}" data-blv="${l[0]}">${l[1]}</button>`).join('')}</div>` : '';
   const cols = setupColors();
   $('setupNames').innerHTML = cols.map((c, i) => {
     const nm = i === 0 ? profile.name : (setupMode === 'bot' ? CHAR_NAME[[0, 1, 2, 3].filter(x => x !== ch(profile.look))[i - 1]] : 'Player ' + (i + 1));
     const ed = setupMode === 'local' && i > 0;
-    return `<div class="prow"><span class="dot" style="background:${UI[c]}"></span>${ed ? `<input class="input" data-pn="${i}" maxlength="14" value="${nm}">` : `<b style="font-size:18px">${esc(nm)}</b>`}</div>`;
+    const tag = team ? `<span class="teamtag ${i % 2 ? 'b' : 'a'}">${i === 0 ? 'You' : i === 2 ? 'Partner' : 'Rival'}</span>` : '';
+    return `<div class="prow"><span class="dot" style="background:${UI[c]}"></span>${ed ? `<input class="input" data-pn="${i}" maxlength="14" value="${nm}">` : `<b style="font-size:18px">${esc(nm)}</b>`}${tag}</div>`;
   }).join('');
 }
+$('setupLevel').addEventListener('click', e => { const b = e.target.closest('[data-blv]'); if (b) { settings.botLevel = b.dataset.blv; store.set('settings', settings); sfx('click'); renderSetup(); } });
 $('setupCount').addEventListener('click', e => {
   const sd = e.target.closest('[data-side]'); if (sd) { setupSide = sd.dataset.side; sfx('click'); renderSetup(); return; }
   const b = e.target.closest('[data-n]'); if (b) { setupN = +b.dataset.n; sfx('click'); renderSetup(); }
@@ -606,8 +628,8 @@ function renderCards() {
   const top = [at(1), at(2)], bottom = [at(0), at(3)];
   const html = p => {
     const snakes = s.game === 'snakes';
-    const fin = snakes ? 0 : s.tokens[p.color].filter(x => x === FINISH).length;
-    const where = snakes ? (s.pos[p.color] ? `Square ${s.pos[p.color]}` : 'At start') : `Home ${fin}/4`;
+    const fin = snakes ? 0 : homeCount(s, p.color);
+    const where = snakes ? (s.pos[p.color] ? `Square ${s.pos[p.color]}` : 'At start') : s.mode === 'timer' ? `${ludoScore(s, p.color)} pts · Home ${fin}/4` : `Home ${fin}/${s.n || 4}` + (s.mode === 'team' ? (p.color === partnerOf(s, me.color) ? ' 🤝' : p.color === me.color ? '' : ' ⚔️') : '');
     const speaking = G.speaking && G.speaking.has(p.id);
     let st = p.done ? 'Finished!' : where;
     if (G.mode === 'online') {
@@ -732,11 +754,28 @@ function enterGame(mode) {
   syncBoard(b);
   b.diceIdle();
   setDiceFace(0);
-  $('gameRoom').textContent = (G.s.game === 'snakes' ? 'Snakes & Ladders · ' : '') + (mode === 'online' ? 'Room ' + G.code : (mode === 'bot' ? 'Vs computer' : 'Pass & play'));
+  G.roomLabel = (G.s.game === 'snakes' ? 'Snakes & Ladders · ' : G.s.mode && G.s.mode !== 'classic' ? LMODE_NAME[G.s.mode] + ' · ' : '') + (mode === 'online' ? 'Room ' + G.code : (mode === 'bot' ? 'Vs computer' : 'Pass & play'));
+  $('gameRoom').textContent = G.roomLabel;
+  startLudoClock();
   $('gameMic').classList.toggle('hide', mode !== 'online');
   $('emojiBtn').style.visibility = mode === 'online' ? 'visible' : 'hidden';
   setBadges();
   renderCards(); refreshDice();
+}
+
+// Timer Ludo: a clock in the top bar. Offline the phone ends the game; online the server does.
+function startLudoClock() {
+  clearInterval(startLudoClock.t);
+  if (!G || !G.s || !G.s.endsAt) return;
+  const s = G.s;
+  const tick = () => {
+    if (!G || G.s !== s || current !== 'game') { clearInterval(startLudoClock.t); return; }
+    const left = Math.max(0, s.endsAt - Date.now()), sec = Math.ceil(left / 1000);
+    $('gameRoom').textContent = `⏱ ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')} · ${G.roomLabel}`;
+    $('gameRoom').classList.toggle('hurry', sec <= 60);
+    if (!left && G.mode !== 'online' && !s.over && !G.busy) { clearInterval(startLudoClock.t); ludoTimeUp(s); note('Time up!'); setTimeout(finishGame, 700); }
+  };
+  tick(); startLudoClock.t = setInterval(tick, 1000);
 }
 
 function tapDice(e) {
@@ -787,7 +826,7 @@ $('cLeave').onclick = () => leaveGame();
 
 // ---------- Offline match ----------
 function startOffline(mode, players) {
-  G = { mode, s: newGame(players), busy: false };
+  G = { mode, s: newGame(players, settings.ludoMode), busy: false, level: settings.botLevel };
   enterGame(mode);
   setTimeout(nextOffline, 600);
 }
@@ -815,7 +854,7 @@ async function offlineRoll() {
   if (r.forfeit) { note('Three 6s, turn lost'); await board.wait(900); passTurn(s); return afterMove(); }
   if (!r.moves.length) { note('No move'); await board.wait(700); passTurn(s); return afterMove(); }
   let pick;
-  if (p.kind === 'bot') { await board.wait(350); pick = botChoice(s, s.turn, d, r.moves); }
+  if (p.kind === 'bot') { await board.wait(350); pick = botChoice(s, s.turn, d, r.moves, G.level); }
   else if (r.moves.length === 1) { await board.wait(250); pick = r.moves[0]; }
   else {
     armTimer(); G.busy = false;
@@ -877,14 +916,18 @@ function finishGame() {
   const P = c => playerOf(s, c);
   const me = s.players.find(p => p.id === pid);
   const winner = P(ranks[0]);
-  const iWon = me && winner.id === pid;
-  $('winTitle').textContent = iWon ? 'You won!' : `${winner.name} won!`;
-  $('winSub').textContent = iWon ? (s.game === 'snakes' ? 'You reached 100 first!' : 'All 4 of your players made it home') : (s.game === 'snakes' ? `${winner.name} reached 100 first` : 'Good game! Try again?');
+  const team = s.mode === 'team' && s.winTeam;
+  const iWon = me && (team ? s.winTeam.includes(me.color) : winner.id === pid);
+  const mate = team ? P(partnerOf(s, winner.color)) : null;
+  $('winTitle').textContent = team ? (iWon ? 'Your team won!' : `${winner.name} & ${mate ? mate.name : ''} won!`) : iWon ? 'You won!' : `${winner.name} won!`;
+  $('winSub').textContent = s.mode === 'timer' ? (s.reason === 'time' ? `Time up! ${iWon ? 'You' : winner.name} scored ${ludoScore(s, winner.color)} points` : `${iWon ? 'You' : winner.name} got every token home first`)
+    : team ? (iWon ? 'You and your partner made it home' : 'Good game! Try again?')
+    : iWon ? (s.game === 'snakes' ? 'You reached 100 first!' : `All ${s.n || 4} of your players made it home`) : (s.game === 'snakes' ? `${winner.name} reached 100 first` : 'Good game! Try again?');
   danceStage({ look: winner.look, tint: winner.color, name: winner.name }, ranks.slice(1).map(c => ({ look: P(c).look, tint: P(c).color })));
   if (me) {
     const rank = ranks.indexOf(me.color) + 1;
-    addHistory({ game: s.game === 'snakes' ? 'snakes' : 'ludo', mode: G.mode, result: rank === 1 ? 'won' : 'lost', rank, of: ranks.length,
-      score: s.game === 'snakes' ? (rank === 1 ? 'Reached 100' : `Square ${s.pos[me.color] || 0}`) : `${s.tokens[me.color].filter(x => x === FINISH).length}/4 home`,
+    addHistory({ game: s.game === 'snakes' ? 'snakes' : 'ludo', mode: G.mode, result: (team ? iWon : rank === 1) ? 'won' : 'lost', rank: team ? (iWon ? 1 : 2) : rank, of: ranks.length,
+      score: s.game === 'snakes' ? (rank === 1 ? 'Reached 100' : `Square ${s.pos[me.color] || 0}`) : (s.mode && s.mode !== 'classic' ? LMODE_NAME[s.mode] + ' · ' : '') + (s.mode === 'timer' ? `${ludoScore(s, me.color)} pts` : `${homeCount(s, me.color)}/${s.n || 4} home`),
       opp: s.players.filter(p => p.id !== pid).map(p => ({ id: p.id, name: p.name, look: p.look, tint: p.color })) });
   }
   $('winRest').innerHTML = `<div class="rankchips">${ranks.slice(1).map((c, i) => `<span class="rankchip"><b>${i + 2}</b>${esc(P(c).name)}</span>`).join('')}</div>`;
@@ -2191,6 +2234,7 @@ function arOverlay(html) { $('arOverBox').innerHTML = html; $('arOver').classLis
 function arrowsCleared() {
   if (G.mode === 'online') { G.net.send({ t: 'adone', order: G.order }); return; }
   const stars = G.hearts;
+  soloLevelWin('arrows', `Level ${G.level} · ${'★'.repeat(stars)}`);
   if (G.level >= (settings.arLevel || 1)) { settings.arLevel = G.level + 1; store.set('settings', settings); }
   sfx('win'); buzz([60, 40, 120]);
   arOverlay(`<div class="stars">${[1, 2, 3].map(i => `<i class="${i <= stars ? 'on' : ''}">★</i>`).join('')}</div><b class="goldtxt big">Level ${G.level} cleared!</b><span>${stars === 3 ? 'Perfect, no bumps!' : `${AR_HEARTS - stars} bump${AR_HEARTS - stars > 1 ? 's' : ''}`}</span>
@@ -2497,6 +2541,7 @@ function hxEvent(type, d) {
     if (G.mode === 'online') { G.net.send({ t: 'hdone' }); return; }
     G.over = true;
     const best = Math.max(store.get('hxBest', 0), G.score); store.set('hxBest', best);
+    soloLevelWin('helix', `Level ${G.level} · ${G.score} pts`);
     if (G.level >= (settings.hxLevel || 1)) { settings.hxLevel = G.level + 1; store.set('settings', settings); }
     hxOverlay(`<b class="goldtxt big">Level ${G.level} done!</b><span>Score ${G.score} · Best ${best}</span>
       <button class="btn gold w100" id="hxNext">Next level</button><button class="btn ghost w100" id="hxHome">Back</button>`, () => hxLoad(G.level + 1));
@@ -2629,7 +2674,7 @@ function openRoom(code) {
   G.voice.setListen(settings.listen);
   G.voice.setVoiceVolume(vol.voice / 100); G.voice.setMicVolume(vol.mic / 50);
   G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (PLAY_SCREENS.includes(current)) renderCards(); };
-  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: GAME === 'sudoku' ? settings.sdLevel : settings.carromMode, pw: '', watch: false });
+  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: GAME === 'sudoku' ? settings.sdLevel : GAME === 'ludo' ? settings.ludoMode : settings.carromMode, pw: '', watch: false, fr: eco.use.fr });
   roomPhotos.clear();
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
@@ -2679,7 +2724,7 @@ function syncMicButtons() {
 function renderLobby() {
   if (!G) return;
   const L = G.lobby, max = G.game === 'chess' || G.game === 'carrom' ? 2 : G.game === 'draw' ? 6 : 4;
-  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : G.game === 'arrows' ? 'Arrow race' : G.game === 'helix' ? 'Helix race' : G.game === 'draw' ? 'Draw & Guess' : GAME_NAME[G.game || 'ludo']) + (['sudoku', 'arrows', 'helix'].includes(G.game) ? '' : ' room');
+  $('lobbyTitle').textContent = (G.game === 'carrom' ? CTYPE_NAME[G.ctype || 'classic'] : G.game === 'sudoku' ? 'Sudoku race · ' + (SD_NAME[G.ctype] || 'Medium') : G.game === 'arrows' ? 'Arrow race' : G.game === 'helix' ? 'Helix race' : G.game === 'draw' ? 'Draw & Guess' : G.game === 'ludo' && G.ctype && G.ctype !== 'classic' ? LMODE_NAME[G.ctype] || 'Ludo' : GAME_NAME[G.game || 'ludo']) + (['sudoku', 'arrows', 'helix'].includes(G.game) ? '' : ' room');
   $('lobbyCount').textContent = `Players (${L.length}/${max})`;
   const cols = seatColors(Math.max(2, L.length));
   const rows = L.map((p, i) => {
@@ -2700,6 +2745,7 @@ function renderLobby() {
   $('lobbyPw').style.display = G.opts && G.opts.pw ? '' : 'none';
   const btn = $('lobbyStart');
   if (G.viewer) { btn.textContent = 'You are watching'; btn.disabled = true; }
+  else if (G.host && G.game === 'ludo' && G.ctype === 'team') { const n = L.filter(p => p.connected).length; btn.textContent = n === 4 ? 'Start game' : `2 vs 2 needs 4 players (${n}/4)`; btn.disabled = n !== 4; }
   else if (G.host) { btn.textContent = 'Start game'; btn.disabled = L.filter(p => p.connected).length < 2; }
   else { btn.textContent = 'Waiting for host...'; btn.disabled = true; }
 }
@@ -2813,6 +2859,7 @@ async function onNet(m) {
       G.s = m.s; G.turnEnds = m.turnEnds; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.reason === 'timeout') note('Time up, turn skipped');
       if (m.reason === 'left') note('Player left the game');
+      if (m.reason === 'time') note('Time up!');
       if (m.reason === 'bot') note(`${String(m.who || 'Player').replace(' 🤖', '')} left · the computer plays for them`);
       renderCards(); refreshDice();
       if (G.s.over) { setTimeout(finishGame, 600); break; }
