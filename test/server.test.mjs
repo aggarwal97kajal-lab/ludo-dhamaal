@@ -30,7 +30,7 @@ const a3 = mk('a3'); room.onMsg(a3, JSON.stringify({ t: 'hello', pid: 'pa', name
 room.clearTurn();
 // Leaving: host leaves mid-game -> next joiner is host, leaver is skipped, last one standing wins
 {
-  const r2 = new Room({}, {}); r2.claimed = true; r2.code = 'LEAVE';
+  const r2 = new Room({}, {}); r2.claimed = true; r2.code = 'LEAVE'; r2.opts.bots = false;
   const x = mk('x'), y = mk('y'), z = mk('z');
   r2.onMsg(x, JSON.stringify({ t: 'hello', pid: 'px', name: 'X' }));
   r2.onMsg(y, JSON.stringify({ t: 'hello', pid: 'py', name: 'Y' }));
@@ -170,5 +170,56 @@ room.clearTurn();
   r.s.turn = 999; r.dTurn('next');
   check(r.s.over && r.s.winner, 'game ends after the rounds');
   r.dClear();
+}
+
+// Viewers: a running room offers "watch", viewers get the state but can't play
+{
+  const r = new Room({}, {}); r.claimed = true; r.code = 'VIEWS';
+  const x = mk('x'), y = mk('y'), w = mk('w'), w2 = mk('w2');
+  r.onMsg(x, JSON.stringify({ t: 'hello', pid: 'px', name: 'X' }));
+  r.onMsg(y, JSON.stringify({ t: 'hello', pid: 'py', name: 'Y' }));
+  r.onMsg(x, JSON.stringify({ t: 'start' }));
+  r.onMsg(w, JSON.stringify({ t: 'hello', pid: 'pw', name: 'W' }));
+  check(w.got.some(m => m.t === 'err' && m.code === 'full'), 'running room offers watch');
+  r.onMsg(w2, JSON.stringify({ t: 'hello', pid: 'pw', name: 'W', watch: true }));
+  check(w2.got.some(m => m.t === 'viewer' && m.on) && w2.got.some(m => m.t === 'sync'), 'viewer gets state');
+  check(r.viewers.length === 1 && r.players.length === 2, 'viewer is not a player');
+  check(x.got.some(m => m.t === 'lobby' && m.viewers && m.viewers.length === 1), 'players see viewer list');
+  const seq = r.s.seq; r.onMsg(w2, JSON.stringify({ t: 'roll' })); check(r.s.seq === seq && !r.s.rolled, 'viewer cannot roll');
+  r.onMsg(w2, JSON.stringify({ t: 'react', e: '🔥' })); check(x.got.some(m => m.t === 'react' && m.e === '🔥'), 'reaction reaches players');
+  r.onMsg(w2, JSON.stringify({ t: 'chat', text: 'go go' })); check(x.got.some(m => m.t === 'chat' && m.viewer), 'viewer chat');
+  r.onMsg(w2, JSON.stringify({ t: 'seat', on: true }));
+  r.onMsg(x, JSON.stringify({ t: 'kick', pid: 'pw' })); check(!r.viewers.length && r.banned.has('pw'), 'host removes viewer');
+  r.clearTurn(); clearTimeout(r.botTimer);
+}
+// Password + viewers off + seat in next game
+{
+  const r = new Room({}, {}); r.claimed = true; r.code = 'PASSW';
+  const x = mk('x'), y = mk('y'), y2 = mk('y2'), z = mk('z'), q = mk('q');
+  r.onMsg(x, JSON.stringify({ t: 'hello', pid: 'px', name: 'X', game: 'chess' }));
+  r.onMsg(x, JSON.stringify({ t: 'hset', opts: { pw: '1234' } }));
+  r.onMsg(y, JSON.stringify({ t: 'hello', pid: 'py', name: 'Y' })); check(y.got.some(m => m.code === 'pw'), 'password asked');
+  r.onMsg(y2, JSON.stringify({ t: 'hello', pid: 'py', name: 'Y', pw: '1234' })); check(r.players.length === 2, 'right password joins');
+  r.onMsg(z, JSON.stringify({ t: 'hello', pid: 'pz', name: 'Z', pw: '1234', watch: true })); check(r.viewers.length === 1, 'full chess room: watch');
+  r.onMsg(z, JSON.stringify({ t: 'seat', on: true }));
+  r.onMsg(y2, JSON.stringify({ t: 'leave' })); check(r.players.some(p => p.pid === 'pz') && !r.viewers.length, 'viewer takes free seat');
+  r.onMsg(x, JSON.stringify({ t: 'hset', opts: { viewers: false } }));
+  r.onMsg(q, JSON.stringify({ t: 'hello', pid: 'pq', name: 'Q', pw: '1234', watch: true })); check(q.got.some(m => m.t === 'err' && !m.code), 'viewers off: no watching');
+}
+// Computer plays for someone who leaves
+{
+  const r = new Room({}, {}); r.claimed = true; r.code = 'BOTTY';
+  const x = mk('x'), y = mk('y');
+  r.onMsg(x, JSON.stringify({ t: 'hello', pid: 'px', name: 'X' }));
+  r.onMsg(y, JSON.stringify({ t: 'hello', pid: 'py', name: 'Y' }));
+  r.onMsg(x, JSON.stringify({ t: 'start' }));
+  r.onMsg(y, JSON.stringify({ t: 'leave' }));
+  const gp = r.s.players.find(p => p.id === 'py');
+  check(gp.bot && !r.s.over, 'bot takes the seat, game goes on');
+  await new Promise(res => { let n = 0; const iv = setInterval(() => { if (r.current().id === 'px' && !r.s.rolled) { r.onMsg(x, JSON.stringify({ t: 'roll' })); if (r.moves.length) r.onMsg(x, JSON.stringify({ t: 'move', token: r.moves[0] })); } if (++n > 60 || x.got.filter(m => m.t === 'rolled').length > 4) { clearInterval(iv); res(); } }, 100); });
+  const botRolls = x.got.filter(m => m.t === 'rolled' && r.s.players.find(p => p.color === m.s.turn) === gp).length;
+  check(x.got.some(m => m.t === 'passed' && m.reason === 'bot'), 'players told about bot');
+  check(botRolls >= 0 && x.got.filter(m => m.t === 'rolled').length > 2, 'game keeps moving with the bot');
+  r.clearTurn(); clearTimeout(r.botTimer); r.s.over = true;
 }
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);

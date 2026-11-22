@@ -70,6 +70,7 @@ function show(id) {
   if (id === 'gamehome') renderModes();
   if (id === 'history') renderHistory();
   if (id === 'hgame') renderHGame();
+  updateVStrip();
   const nav = ['home', 'history', 'hgame'].includes(id) || (id === 'profile' && !!profile);
   $('bnav').classList.toggle('show', nav);
   document.querySelectorAll('#bnav [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === (id === 'hgame' ? 'history' : id)));
@@ -605,7 +606,8 @@ function renderCards() {
     let st = p.done ? 'Finished!' : where;
     if (G.mode === 'online') {
       const lp = G.lobby.find(x => x.pid === p.id);
-      if (lp && lp.left) st = 'Offline';
+      if (p.bot) st = 'Computer · ' + where;
+      else if (lp && lp.left) st = 'Offline';
       else if (lp && !lp.connected) st = 'Waiting for network...';
       else if (speaking) st = 'Speaking...';
       else if (p.id !== pid && G.voice && voiceText(p.id) !== 'voice on') st = voiceText(p.id).replace('voice', 'Voice');
@@ -1814,6 +1816,7 @@ async function onPattaEv(m) {
   void before;
   if (current === 'patta') {
     if (ev && ev.t === 'left') { note(`${G.s.players[ev.who].name} left the game`); renderPatta(); }
+    else if (ev && ev.t === 'bot') { note(`${G.s.players[ev.who].name.replace(' 🤖', '')} left · the computer plays for them`); renderPatta(); }
     else await pattaApplied(ev, fromEl);
   }
   if (ev && ev.timeout && ev.who === pattaMe()) note('Time up');
@@ -2620,7 +2623,7 @@ function openRoom(code) {
   G.voice.setListen(settings.listen);
   G.voice.setVoiceVolume(vol.voice / 100); G.voice.setMicVolume(vol.mic / 50);
   G.voice.onState = () => { if (current === 'lobby') renderLobby(); else if (PLAY_SCREENS.includes(current)) renderCards(); };
-  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: GAME === 'sudoku' ? settings.sdLevel : settings.carromMode });
+  G.net.join(code, { pid, name: profile.name, look: profile.look, tint: profile.color, game: GAME, mode: GAME === 'sudoku' ? settings.sdLevel : settings.carromMode, pw: '', watch: false });
   roomPhotos.clear();
   $('lobbyCode').textContent = code;
   renderLobby(); show('lobby');
@@ -2680,13 +2683,18 @@ function renderLobby() {
     if (p.pid !== pid && p.connected) st += ' \u00b7 ' + voiceText(p.pid);
     return `<div class="pcard">${avatar(p.look, c, sp ? 'speak' : '', p.pid)}
       <div class="col grow"><span class="nm">${esc(p.name)}${p.pid === pid ? ' (You)' : ''}</span><span class="st">${st}</span></div>
-      <span class="mic ${p.mic ? 'on' : ''}">${p.mic ? MIC : MIC_OFF}</span></div>`;
+      <span class="mic ${p.mic ? 'on' : ''}">${p.mic ? MIC : MIC_OFF}</span>${G.host && p.pid !== pid ? `<button class="kick" data-kick="${p.pid}" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}</div>`;
   });
   $('voiceInfo').textContent = !G.voice.hasMic() ? 'Your mic is not allowed. Others can\u2019t hear you.' : (VoiceMod.RELAY ? 'Voice relay: on' : 'Voice relay: off (voice may fail on mobile data)');
   for (let i = L.length; i < max; i++) rows.push(`<div class="pcard"><div class="av" style="opacity:.4"><div class="in" style="background:#2E1A75"></div></div><div class="col grow"><span class="nm">Empty slot</span><span class="st">Waiting for a friend...</span></div></div>`);
+  const V = G.viewers || [];
+  if (V.length) rows.push(`<b class="vhead">👁 Watching (${V.length})</b>` + V.map(v => `<div class="pcard vcard">${photoAv(v)}<div class="col grow"><span class="nm">${esc(v.name)}${v.pid === pid ? ' (You)' : ''}</span><span class="st">${v.seat ? 'Wants to play next' : 'Watching'}</span></div>${v.pid !== pid ? `<button class="mic ${v.mic ? 'on' : ''}" data-vdeaf="${v.pid}">${v.mic && !(G.voice && G.voice.deafened.has(v.pid)) ? MIC : MIC_OFF}</button>` : ''}${G.host ? `<button class="kick" data-kick="${v.pid}" aria-label="Remove">✕</button>` : ''}</div>`).join(''));
   $('lobbyPlayers').innerHTML = rows.join('');
+  $('lobbySet').style.display = G.host ? '' : 'none';
+  $('lobbyPw').style.display = G.opts && G.opts.pw ? '' : 'none';
   const btn = $('lobbyStart');
-  if (G.host) { btn.textContent = 'Start game'; btn.disabled = L.filter(p => p.connected).length < 2; }
+  if (G.viewer) { btn.textContent = 'You are watching'; btn.disabled = true; }
+  else if (G.host) { btn.textContent = 'Start game'; btn.disabled = L.filter(p => p.connected).length < 2; }
   else { btn.textContent = 'Waiting for host...'; btn.disabled = true; }
 }
 $('lobbyStart').onclick = () => { if (G && G.host) { sfx('click'); G.net.send({ t: 'start' }); } };
@@ -2710,10 +2718,11 @@ async function onNet(m) {
     case 'lobby': {
       const wasHost = G.host;
       const before = {}; (G.lobby || []).forEach(p => { before[p.pid] = p.connected; });
-      G.lobby = m.players; G.host = m.host === pid;
+      G.lobby = m.players; G.host = m.host === pid; G.viewers = m.viewers || []; G.opts = m.opts || {};
+      if (G.viewer && G.voice && !G.opts.vtalk && G.voice.hasMic() && !G.voice.muted) { G.voice.setMuted(true); syncMicButtons(); }
       if (m.game && m.game !== G.game) { G.game = m.game; GAME = m.game; store.set('game', GAME); }
       G.ctype = m.mode || 'classic';
-      const live = m.players.filter(p => p.connected && !p.left).map(p => p.pid);
+      const live = m.players.filter(p => p.connected && !p.left).map(p => p.pid).concat(G.viewers.map(v => v.pid));
       if (G.wasOffline) { G.wasOffline = false; G.voice.restart(live); }
       else m.players.forEach(p => { if (p.pid !== pid && p.connected && before[p.pid] === false) G.voice.restart([p.pid]); });
       if (G.host && !wasHost && G.hostKnown) toast('You are now the host', '#3A2490');
@@ -2722,9 +2731,16 @@ async function onNet(m) {
       G.voice.sync(live);
       if (current === 'lobby') renderLobby();
       if (PLAY_SCREENS.includes(current)) renderCards();
+      updateVStrip();
       break;
     }
+    case 'viewer':
+      G.viewer = !!m.on; if (G.net.hello) G.net.hello.watch = G.viewer;
+      if (!m.on) { toast('You got a seat! You play in this game.', '#1E9E5A'); sfx('turn'); if (current === 'lobby') renderLobby(); }
+      updateVStrip(); break;
+    case 'react': floatReact(m.e, m.from); break;
     case 'err':
+      if (m.code === 'full' || m.code === 'pw') { askWatchOrPw(m); break; }
       modal(`<h3>Oops</h3><p>${esc(m.msg)}</p><button class="btn gold" id="mOk">OK</button>`);
       $('mOk').onclick = () => { closeModal(); if (m.fatal) { endOnline(); G = null; show('gamehome'); } };
       break;
@@ -2791,6 +2807,7 @@ async function onNet(m) {
       G.s = m.s; G.turnEnds = m.turnEnds; G.s.players.forEach(p => { p.kind = p.id === pid ? 'me' : 'remote'; });
       if (m.reason === 'timeout') note('Time up, turn skipped');
       if (m.reason === 'left') note('Player left the game');
+      if (m.reason === 'bot') note(`${String(m.who || 'Player').replace(' 🤖', '')} left · the computer plays for them`);
       renderCards(); refreshDice();
       if (G.s.over) { setTimeout(finishGame, 600); break; }
       if (playerOf(G.s, G.s.turn).id === pid) sfx('turn');
@@ -2835,8 +2852,12 @@ function voiceText(id) {
 }
 
 // ---------- Chat (online rooms) ----------
-const QUICK = ['😂', '🔥', '👏', '😡', '😭', '🙏', 'Well played!', 'Hurry up!', 'Oh no!', 'Haha', 'Good luck!'];
-$('chatQuick').innerHTML = QUICK.map(q => `<button type="button" class="${q.length <= 2 ? 'e' : ''}" data-q="${esc(q)}">${esc(q)}</button>`).join('');
+const QUICK = ['Jaldi karo!', 'Kya chaal hai! 🔥', 'Bach gaya 😅', 'Ab dekh!', 'Mast khela!', 'Arre yaar!', 'GG 👏', 'Ruk ja zara', 'Good luck!', 'Haha'];
+// Stickers are sent as chat messages "::s:<key>" and shown big and animated.
+const STICKERS = { lol: ['🤣', 'Hahaha'], fire: ['🔥', 'Aag laga di'], clap: ['👏', 'Waah!'], cry: ['😭', 'Ro dunga'], angry: ['😤', 'Gussa'], party: ['🥳', 'Jeet gaye!'], cool: ['😎', 'Cool hai'], pray: ['🙏', 'Bacha lo'], think: ['🤔', 'Sochne do'], bye: ['👋', 'Chalo bye'] };
+const stickerOf = t => { const m = /^::s:(\w+)$/.exec(t || ''); return m && STICKERS[m[1]] ? STICKERS[m[1]] : null; };
+$('chatQuick').innerHTML = `<div class="stkrow">${Object.entries(STICKERS).map(([k, v]) => `<button type="button" class="stk" data-q="::s:${k}"><i>${v[0]}</i><small>${v[1]}</small></button>`).join('')}</div>`
+  + QUICK.map(q => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join('');
 function openChat() {
   if (!G || G.mode !== 'online') return;
   G.unread = 0; setBadges();
@@ -2855,7 +2876,11 @@ const isBig = t => /^\p{Extended_Pictographic}{1,3}$/u.test(t);
 function renderChat() {
   if (!G) return;
   const list = G.chat || [];
-  $('chatList').innerHTML = list.length ? list.map(m => `<div class="msg ${m.from === pid ? 'me' : ''} ${isBig(m.text) ? 'big' : ''}">${m.from === pid || isBig(m.text) ? '' : `<b style="color:${UI_EDGE[colorOf(m.from)] || '#C9C1F0'}">${esc(m.name)}</b>`}${esc(m.text)}</div>`).join('') : '<div class="chatempty">Say hi to your friends!</div>';
+  $('chatList').innerHTML = list.length ? list.map(m => {
+    const st = stickerOf(m.text), who = m.from === pid ? '' : `<b style="color:${m.viewer ? '#9fe3ff' : UI_EDGE[colorOf(m.from)] || '#C9C1F0'}">${m.viewer ? '👁 ' : ''}${esc(m.name)}</b>`;
+    if (st) return `<div class="msg stkmsg ${m.from === pid ? 'me' : ''}">${who}<span class="stkbig">${st[0]}</span><small>${esc(st[1])}</small></div>`;
+    return `<div class="msg ${m.from === pid ? 'me' : ''} ${isBig(m.text) ? 'big' : ''}">${m.from === pid || isBig(m.text) ? '' : who}${esc(m.text)}</div>`;
+  }).join('') : '<div class="chatempty">Say hi to your friends!</div>';
   $('chatList').scrollTop = 1e6;
 }
 function colorOf(id) {
@@ -2871,7 +2896,9 @@ function onChat(m) {
   G.chat = G.chat || []; G.chat.push(m); if (G.chat.length > 60) G.chat.shift();
   if ($('chat').classList.contains('show')) renderChat();
   else if (m.from !== pid) { G.unread = (G.unread || 0) + 1; setBadges(); sfx('pop'); }
-  if (PLAY_SCREENS.includes(current)) sayBubble(m);
+  const st = stickerOf(m.text);
+  if (st) popSticker(st, m.name, m.from === pid);
+  else if (PLAY_SCREENS.includes(current)) sayBubble(m);
 }
 function sayBubble(m) {
   const card = document.querySelector(`#${current} [data-pid="${m.from}"]`);
@@ -3004,3 +3031,130 @@ document.addEventListener('visibilitychange', () => music(!document.hidden && !P
 
 window.__ld = () => G; window.__hboard = () => hboard; window.__board = () => board; window.__cboard = () => cboard; window.__rboard = () => rboard; window.__finish = () => finishGame();
 splash();
+
+// ---------- Viewers, reactions, stickers, host controls ----------
+const REACTS = ['👏', '😂', '🔥', '😮', '😡', '❤️', '🎉', '😭'];
+const photoAv = v => avatar(v.look, ch(v.look), '', v.pid);
+// Room is full or has a password: offer to watch, or ask for the password.
+function askWatchOrPw(m) {
+  if (!G || !G.net) return;
+  const h = G.net.hello;
+  G.net.close();
+  const cancel = () => { closeModal(); endOnline(); G = null; show('gamehome'); };
+  if (m.code === 'pw') {
+    modal(`<div class="sheethead">🔒</div><h3>Room password</h3><p>${esc(m.msg)}</p><input class="input" id="pwIn" maxlength="8" inputmode="numeric" placeholder="Password" autocomplete="off"><div class="row gap10 w100 mt12"><button class="btn ghost grow" id="mNo">Cancel</button><button class="btn gold grow" id="mOk">Join</button></div>`);
+    $('pwIn').focus();
+    $('mNo').onclick = cancel;
+    $('mOk').onclick = () => { const v = $('pwIn').value.trim(); if (!v) return; closeModal(); h.pw = v; G.net.join(G.code, h); };
+    return;
+  }
+  const n = G.lobby ? G.lobby.length : 0;
+  modal(`<div class="sheethead eye">👁</div><h3>${esc(m.msg)}</h3><p>You can watch the game live, chat, send reactions and take a seat in the next game.</p>
+    <div class="row gap10 w100 mt12"><button class="btn ghost grow" id="mNo">Not now</button><button class="btn gold grow" id="mOk">👁 Watch live</button></div>`);
+  void n;
+  $('mNo').onclick = cancel;
+  $('mOk').onclick = () => { closeModal(); h.watch = true; G.viewer = true; G.net.join(G.code, h); toast('Joining as a viewer...', '#3A2490'); };
+}
+
+const vstrip = document.createElement('div'); vstrip.className = 'vstrip'; vstrip.id = 'vstrip'; document.body.appendChild(vstrip);
+const vbar = document.createElement('div'); vbar.className = 'vbar'; vbar.id = 'vbar'; document.body.appendChild(vbar);
+const rxLayer = document.createElement('div'); rxLayer.className = 'rxlayer'; document.body.appendChild(rxLayer);
+function placeVStrip() {
+  const scr = $(current), tops = scr ? [...scr.querySelectorAll('.gtop, .cards.top, .sdtop, .sdrace, .hxtop, .dwrap > .row, .dword, .popp.top')] : [];
+  const y = tops.reduce((m, el) => { const r = el.getBoundingClientRect(); return r.height && r.top < innerHeight * .4 ? Math.max(m, r.bottom) : m; }, 56);
+  vstrip.style.top = Math.round(y + 6) + 'px';
+}
+const WATCH_SCREENS = () => PLAY_SCREENS.concat(['win']);
+function updateVStrip() {
+  const on = G && G.mode === 'online' && G.net && WATCH_SCREENS().includes(current);
+  const V = (G && G.viewers) || [];
+  vstrip.classList.toggle('show', !!(on && V.length));
+  document.querySelectorAll('.screen').forEach(x => x.classList.toggle('hasv', !!(on && V.length) && x.id === current));
+  document.body.classList.toggle('viewing', !!(on && G.viewer));
+  vbar.classList.toggle('show', !!(on && G.viewer && current !== 'win'));
+  if (!on) return;
+  // Sit just below the top bar / top player cards of whichever game is open.
+  placeVStrip(); clearTimeout(updateVStrip.t); updateVStrip.t = setTimeout(placeVStrip, 450);
+  if (V.length) {
+    vstrip.innerHTML = `<div class="vfaces">${V.slice(0, 5).map(v => `<span class="vf ${G.speaking.has(v.pid) ? 'speak' : ''}">${photoAv(v)}</span>`).join('')}${V.length > 5 ? `<span class="vmore">+${V.length - 5}</span>` : ''}</div><b>👁 ${V.length} watching</b>${G.viewer ? '' : '<button class="vrx" id="vrxBtn" aria-label="Send a reaction">😊</button>'}`;
+  }
+  if (G.viewer) {
+    const me = V.find(v => v.pid === pid), seat = me && me.seat;
+    vbar.innerHTML = `<div class="vtop"><span class="vlabel"><i class="dot"></i>👁 You are watching</span><button class="iconbtn sm" id="vLeave" aria-label="Leave">✕</button></div>
+      <div class="vrxrow">${REACTS.map(e => `<button data-rx="${e}">${e}</button>`).join('')}</div>
+      <div class="row gap10"><button class="micbtn sm" id="vMic" aria-label="Mic" ${G.opts && G.opts.vtalk === false ? 'disabled' : ''}>${G.voice && G.voice.hasMic() && !G.voice.muted ? MIC : MIC_OFF}</button>
+      <button class="micbtn chatbtn sm" id="vChat" aria-label="Chat"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12z"/></svg></button>
+      <button class="btn ${seat ? 'ghost' : 'gold'} grow" id="vSeat">${seat ? '✓ You play next game' : '🪑 Play next game'}</button></div>`;
+  }
+}
+vstrip.addEventListener('click', e => {
+  if (e.target.closest('#vrxBtn')) { e.stopPropagation(); rxPicker(); return; }
+  viewerSheet();
+});
+function rxPicker() {
+  modal(`<h3>Send a reaction</h3><div class="vrxrow big">${REACTS.map(e => `<button data-rx="${e}">${e}</button>`).join('')}</div>`);
+  $('modalBox').querySelectorAll('[data-rx]').forEach(b => b.onclick = () => { closeModal(); sendReact(b.dataset.rx); });
+}
+function viewerSheet() {
+  const V = (G && G.viewers) || [];
+  modal(`<h3>👁 ${V.length} watching</h3><div class="col gap10 vlist">${V.map(v => `<div class="pcard vcard">${photoAv(v)}<div class="col grow"><span class="nm">${esc(v.name)}${v.pid === pid ? ' (You)' : ''}</span><span class="st">${v.seat ? 'Wants to play next' : 'Watching'}</span></div>
+    ${v.pid !== pid ? `<button class="mic ${v.mic ? 'on' : ''}" data-vdeaf="${v.pid}">${v.mic && !(G.voice && G.voice.deafened.has(v.pid)) ? MIC : MIC_OFF}</button>` : ''}${G.host ? `<button class="kick" data-kick="${v.pid}">✕</button>` : ''}</div>`).join('')}</div>
+    <button class="btn gold w100 mt12" id="mOk">Close</button>`);
+  $('mOk').onclick = closeModal;
+}
+function sendReact(e) { if (G && G.net) { G.net.send({ t: 'react', e }); sfx('pop'); } }
+vbar.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || !G) return;
+  if (b.dataset.rx) return sendReact(b.dataset.rx);
+  if (b.id === 'vChat') { sfx('click'); openChat(); }
+  if (b.id === 'vSeat') { const me = (G.viewers || []).find(v => v.pid === pid); G.net.send({ t: 'seat', on: !(me && me.seat) }); sfx('click'); }
+  if (b.id === 'vLeave') confirmBox('Stop watching?', 'You will leave this room.', 'Leave', 'Stay', () => { G.net.send({ t: 'leave' }); endOnline(); G = null; updateVStrip(); show('gamehome'); });
+  if (b.id === 'vMic') (async () => {
+    if (!G.voice) return;
+    if (!G.voice.hasMic()) { const ok = await G.voice.start(pid, true); if (!ok) { toast('Allow the mic in phone settings', '#3A2490'); return; } }
+    else G.voice.setMuted(!G.voice.muted);
+    G.net.send({ t: 'mic', on: !G.voice.muted }); syncMicButtons(); updateVStrip();
+  })();
+});
+function floatReact(e, from) {
+  const el = document.createElement('span'); el.className = 'rx'; el.textContent = e;
+  el.style.left = (12 + Math.random() * 70) + '%';
+  el.style.animationDuration = (2.2 + Math.random() * .8) + 's';
+  rxLayer.appendChild(el); setTimeout(() => el.remove(), 3200);
+  if (from !== pid) buzz(15);
+}
+function popSticker(st, name, mine) {
+  const el = document.createElement('div'); el.className = 'stkpop';
+  el.innerHTML = `<i>${st[0]}</i><b>${esc(mine ? 'You' : name)}</b><small>${esc(st[1])}</small>`;
+  rxLayer.appendChild(el); setTimeout(() => el.remove(), 2400);
+  if (!mine) sfx('pop');
+}
+document.addEventListener('click', e => {
+  const k = e.target.closest('[data-kick]');
+  if (k && G && G.host) {
+    const id = k.dataset.kick, who = (G.lobby || []).concat(G.viewers || []).find(x => x.pid === id);
+    confirmBox(`Remove ${who ? who.name : 'this person'}?`, 'They can’t come back to this room.', 'Remove', 'Cancel', () => { G.net.send({ t: 'kick', pid: id }); closeModal(); });
+    return;
+  }
+  const d = e.target.closest('[data-vdeaf]');
+  if (d && G && G.voice) { const off = G.voice.toggleDeafen(d.dataset.vdeaf); toast(off ? 'Muted for you' : 'Unmuted', '#3A2490'); if (current === 'lobby') renderLobby(); if ($('modal').classList.contains('show')) viewerSheet(); }
+});
+// Host room settings
+$('lobbySet').onclick = () => {
+  if (!G || !G.host) return;
+  sfx('click');
+  const o = Object.assign({ viewers: true, vtalk: true, bots: true }, G.opts || {});
+  const pw = G.myPw || '';
+  const tog = (k, t, sub) => `<label class="hrow"><span class="col grow"><b>${t}</b><small>${sub}</small></span><input type="checkbox" class="sw" data-o="${k}" ${o[k] ? 'checked' : ''}></label>`;
+  modal(`<h3>⚙ Room settings</h3>
+    <label class="hrow"><span class="col grow"><b>🔒 Password</b><small>Friends need it to join. Leave empty for none.</small></span><input class="input pwbox" id="hPw" maxlength="8" inputmode="numeric" value="${esc(pw)}" placeholder="None"></label>
+    ${tog('viewers', '👁 Allow viewers', 'People can watch when the room is full')}
+    ${tog('vtalk', '🎙 Viewers can talk', 'Players can still mute anyone')}
+    ${tog('bots', '🤖 Computer plays for leavers', 'Ludo, Snakes & Ladders and UNO keep going')}
+    <button class="btn gold w100 mt12" id="mOk">Save</button>`);
+  $('mOk').onclick = () => {
+    const opts = { pw: $('hPw').value.replace(/[^0-9A-Za-z]/g, '').slice(0, 8) };
+    $('modalBox').querySelectorAll('[data-o]').forEach(c => { opts[c.dataset.o] = c.checked; });
+    G.myPw = opts.pw; G.net.send({ t: 'hset', opts }); closeModal(); toast('Room settings saved', '#1E9E5A');
+  };
+};
