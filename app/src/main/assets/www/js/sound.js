@@ -58,6 +58,7 @@ export function sfx(name) {
     case 'finish': [660, 880, 1100].forEach((f, i) => tone(f, i * 0.09, 0.25, 'sine', 0.18)); break;
     case 'win': [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, i * 0.13, 0.3, 'triangle', 0.2)); break;
     case 'click': tone(700, 0, 0.05, 'sine', 0.1); break;
+    case 'tick': tone(1200, 0, 0.025, 'square', 0.05); break;
     case 'turn': tone(880, 0, 0.12, 'sine', 0.12); tone(1320, 0.1, 0.15, 'sine', 0.12); break;
     case 'pop': tone(300, 0, 0.12, 'sine', 0.2, 900); break;
   }

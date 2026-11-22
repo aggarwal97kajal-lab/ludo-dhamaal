@@ -45,5 +45,12 @@
                 <data android:scheme="pitara" android:host="room" />
             </intent-filter>
         </activity>
+            <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/share_paths" />
+        </provider>
     </application>
 </manifest>

@@ -52,7 +52,7 @@ let myPhoto = store.get('photo', null);
 const roomPhotos = new Map();
 const photoOf = id => !id ? null : id === pid ? myPhoto : roomPhotos.get(id) || null;
 const faceImg = (look, color, id) => { const ph = photoOf(id); return ph ? `<div class="in photo" style="background:${UI[color]}"><img src="${ph}" alt=""></div>` : `<div class="in" style="background:${UI[color]}"><img src="${face(look, color)}" alt=""></div>`; };
-const avatar = (look, color, cls, id) => `<div class="av ${cls || ''}">${faceImg(look, color, id)}</div>`;
+const avatar = (look, color, cls, id) => `<div class="av ${cls || ''} ${id && id === pid ? 'mine' : ''}">${faceImg(look, color, id)}</div>`;
 
 // ---------- Screens ----------
 let current = 'splash';
@@ -70,8 +70,13 @@ function show(id) {
   if (id === 'gamehome') renderModes();
   if (id === 'history') renderHistory();
   if (id === 'hgame') renderHGame();
+  if (id === 'daily') renderDaily();
+  if (id === 'shop') renderShop();
+  if (id === 'badges') renderBadges();
+  if (id === 'win') winExtras();
+  if (id === 'home') { renderCoins(); setDailyDot(); }
   updateVStrip();
-  const nav = ['home', 'history', 'hgame'].includes(id) || (id === 'profile' && !!profile);
+  const nav = ['home', 'history', 'hgame', 'shop', 'badges', 'daily'].includes(id) || (id === 'profile' && !!profile);
   $('bnav').classList.toggle('show', nav);
   document.querySelectorAll('#bnav [data-nav]').forEach(b => b.classList.toggle('on', b.dataset.nav === (id === 'hgame' ? 'history' : id)));
 }
@@ -227,6 +232,7 @@ function addHistory(h) {
   history.unshift(Object.assign({ at: Date.now() }, h));
   if (history.length > 400) history.length = 400;
   store.set('history', history);
+  rewardGame(h);
   (h.opp || []).forEach(o => {
     const img = o.id && G.mode === 'online' ? roomPhotos.get(o.id) : null;
     if (!img) return;
@@ -447,7 +453,7 @@ const CTYPES = [
 const CTYPE_NAME = { classic: 'Carrom', free: 'Free Style', disc: 'Disc Pool' };
 function carromTypesHtml() {
   return `<div class="ctypes">${CTYPES.map(t => `<button class="ctype ${t[0]} ${settings.carromMode === t[0] ? 'on' : ''}" data-ctype="${t[0]}"><svg viewBox="0 0 120 120">${carromPic(t[0])}</svg><span class="col"><b>${t[1]}</b><small>${t[2]}</small></span>${settings.carromMode === t[0] ? '<i class="tick">✓</i>' : ''}</button>`).join('')}</div>
-  <div class="panel strow"><div class="vic">🎯</div><div class="col grow"><b>Striker</b><small>Your striker design</small></div>${['blue', 'gold', 'ruby'].map((c, i) => `<button class="stk ${c} ${settings.striker === i ? 'on' : ''}" data-stk="${i}" aria-label="${c} striker"></button>`).join('')}</div>`;
+  <div class="panel strow"><div class="vic">🎯</div><div class="col grow"><b>Striker</b><small>Your striker design</small></div>${['blue', 'gold', 'ruby'].map((c, i) => eco.owned.includes('st' + i) ? `<button class="stk ${c} ${settings.striker === i ? 'on' : ''}" data-stk="${i}" aria-label="${c} striker"></button>` : '').join('')}<button class="stk more" data-go="shop" aria-label="More strikers in the shop">+</button></div>`;
 }
 function carromPic(mode) {
   let s = '<rect x="4" y="4" width="112" height="112" rx="10" fill="#5a2a10"/><rect x="12" y="12" width="96" height="96" rx="4" fill="#f1d498"/>';
@@ -466,7 +472,7 @@ $('modes').addEventListener('click', e => {
   const hm = e.target.closest('[data-hxmode]'); if (hm) { sfx('click'); startHelix(settings.hxLevel || 1); return; }
   const am = e.target.closest('[data-armode]'); if (am) { sfx('click'); arrowMode(am.dataset.armode); return; }
   const ct = e.target.closest('[data-ctype]'); if (ct) { settings.carromMode = ct.dataset.ctype; store.set('settings', settings); sfx('click'); renderModes(); return; }
-  const sk = e.target.closest('[data-stk]'); if (sk) { settings.striker = +sk.dataset.stk; store.set('settings', settings); sfx('click'); if (rboard) rboard.setStrikerStyle(settings.striker); renderModes(); return; }
+  const sk = e.target.closest('[data-stk]'); if (sk) { settings.striker = +sk.dataset.stk; store.set('settings', settings); eco.use.st = 'st' + settings.striker; saveEco(); sfx('click'); if (rboard) rboard.setStrikerStyle(settings.striker); renderModes(); return; }
   const b = e.target.closest('[data-mode]'); if (!b) return; sfx('click');
   const m = b.dataset.mode;
   if (m === 'online') createRoom();
@@ -524,7 +530,7 @@ function dropBoard() { if (board) { board.destroy(); board = null; } }
 function ensureBoard(kind) {
   kind = kind || 'ludo';
   if (board && (board.kind !== kind || board.dead)) dropBoard();
-  if (!board) { board = kind === 'snakes' ? new SnakeBoard3D(freshCanvas('board')) : new Board3D(freshCanvas('board')); board.kind = kind; }
+  if (!board) { board = kind === 'snakes' ? new SnakeBoard3D(freshCanvas('board')) : new Board3D(freshCanvas('board')); board.kind = kind; if (board.setDiceStyle) board.setDiceStyle(itemOf(eco.use.dc).st); if (board.setTheme) board.setTheme(itemOf(eco.use.bd).th); }
   else board.resize();
   board.paused = false;
   return board;
@@ -905,7 +911,7 @@ let cboard = null;
 function dropCBoard() { if (cboard) { cboard.destroy(); cboard = null; } }
 function ensureCBoard() {
   if (cboard && cboard.dead) cboard = null;
-  if (!cboard) { cboard = new Chess3D(freshCanvas('cboard')); cboard.onTap = chessTap; }
+  if (!cboard) { cboard = new Chess3D(freshCanvas('cboard')); cboard.onTap = chessTap; cboard.setTheme(itemOf(eco.use.bd).th); }
   else cboard.resize();
   cboard.paused = false;
   return cboard;
@@ -1219,7 +1225,7 @@ const CSIDE = ['White', 'Black'], CDOT = ['#F4EFE6', '#1D1D1D'];
 function dropRBoard() { if (rboard) { rboard.destroy(); rboard = null; } }
 function ensureRBoard() {
   if (rboard && rboard.dead) rboard = null;
-  if (!rboard) { rboard = new Carrom3D(freshCanvas('rboard')); hookCarromInput(rboard); rboard.setStrikerStyle(settings.striker); rboard.setFlat(!settings.carrom3d); }
+  if (!rboard) { rboard = new Carrom3D(freshCanvas('rboard')); hookCarromInput(rboard); rboard.setStrikerStyle(settings.striker); rboard.setFlat(!settings.carrom3d); rboard.setTheme(itemOf(eco.use.bd).th); }
   else rboard.resize();
   rboard.paused = false;
   return rboard;
@@ -2856,7 +2862,7 @@ const QUICK = ['Jaldi karo!', 'Kya chaal hai! 🔥', 'Bach gaya 😅', 'Ab dekh!
 // Stickers are sent as chat messages "::s:<key>" and shown big and animated.
 const STICKERS = { lol: ['🤣', 'Hahaha'], fire: ['🔥', 'Aag laga di'], clap: ['👏', 'Waah!'], cry: ['😭', 'Ro dunga'], angry: ['😤', 'Gussa'], party: ['🥳', 'Jeet gaye!'], cool: ['😎', 'Cool hai'], pray: ['🙏', 'Bacha lo'], think: ['🤔', 'Sochne do'], bye: ['👋', 'Chalo bye'] };
 const stickerOf = t => { const m = /^::s:(\w+)$/.exec(t || ''); return m && STICKERS[m[1]] ? STICKERS[m[1]] : null; };
-$('chatQuick').innerHTML = `<div class="stkrow">${Object.entries(STICKERS).map(([k, v]) => `<button type="button" class="stk" data-q="::s:${k}"><i>${v[0]}</i><small>${v[1]}</small></button>`).join('')}</div>`
+$('chatQuick').innerHTML = `<div class="stkrow">${Object.entries(STICKERS).map(([k, v]) => `<button type="button" class="stkb" data-q="::s:${k}"><i>${v[0]}</i><small>${v[1]}</small></button>`).join('')}</div>`
   + QUICK.map(q => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join('');
 function openChat() {
   if (!G || G.mode !== 'online') return;
@@ -3158,3 +3164,239 @@ $('lobbySet').onclick = () => {
     G.myPw = opts.pw; G.net.send({ t: 'hset', opts }); closeModal(); toast('Room settings saved', '#1E9E5A');
   };
 };
+
+// ---------- Coins, daily reward, shop, badges, win card ----------
+// Coins are only for fun items in the shop. No real money anywhere.
+const eco = Object.assign({ coins: 100, owned: ['fr0', 'dc0', 'st0', 'bd0'], use: { fr: 'fr0', dc: 'dc0', st: 'st0', bd: 'bd0' }, streak: 0, lastDay: '', spunDay: '', badges: {}, bought: 0 }, store.get('eco', {}));
+if (settings.striker && !eco.owned.includes('st' + settings.striker)) eco.owned.push('st' + settings.striker); // designs picked before the shop existed stay free
+const saveEco = () => store.set('eco', eco);
+const SHOP = {
+  fr: { name: 'Frames', items: [
+    { id: 'fr0', name: 'Royal Gold', price: 0 }, { id: 'fr4', name: 'Emerald', price: 250 }, { id: 'fr1', name: 'Ruby Fire', price: 300 },
+    { id: 'fr3', name: 'Holi Colours', price: 400 }, { id: 'fr2', name: 'Diwali Diya', price: 500 }, { id: 'fr5', name: 'Diamond', price: 900 }] },
+  dc: { name: 'Dice', items: [
+    { id: 'dc0', name: 'Classic', price: 0, st: ['#ffffff', '#1a1050', '#ff1744'] }, { id: 'dc3', name: 'Rose', price: 250, st: ['#ff8ab4', '#ffffff', '#ffffff'] },
+    { id: 'dc1', name: 'Golden', price: 300, st: ['#ffd34d', '#6b1a00', '#c4001d'] }, { id: 'dc4', name: 'Emerald', price: 350, st: ['#12a26a', '#ffffff', '#ffe17a'] },
+    { id: 'dc2', name: 'Midnight', price: 400, st: ['#22104f', '#ffd34d', '#ff5f93'] }] },
+  st: { name: 'Strikers', items: [{ id: 'st0', name: 'Blue', price: 0 }, { id: 'st1', name: 'Gold', price: 300 }, { id: 'st2', name: 'Ruby', price: 400 }] },
+  bd: { name: 'Boards', items: [
+    { id: 'bd0', name: 'Shahi night', price: 0, art: '🌙✨', th: ['#120a33', '#24135e'] }, { id: 'bd3', name: 'Holi', price: 600, art: '🎨🌈', th: ['#3a0f4f', '#a0286e'] },
+    { id: 'bd1', name: 'Diwali night', price: 700, art: '🪔✨', th: ['#2a0c00', '#7a3200'] }, { id: 'bd2', name: 'Cricket stadium', price: 700, art: '🏏🏟️', th: ['#062a1a', '#0e7a46'] }] }
+};
+const itemOf = id => SHOP[id.slice(0, 2)].items.find(x => x.id === id);
+const frameCls = () => 'fr-' + eco.use.fr;
+const coinFmt = n => Number(n).toLocaleString('en-IN');
+function addCoins(n, why) {
+  eco.coins = Math.max(0, eco.coins + n); saveEco(); renderCoins();
+  if (n > 0 && why) toast(`+${n} 🪙 ${why}`, '#8a5600');
+}
+function renderCoins() { document.querySelectorAll('.coinpill b').forEach(b => { b.textContent = coinFmt(eco.coins); }); }
+function applyLooks() {
+  document.body.className = document.body.className.replace(/\b(fr|bd|dc)-\w+/g, '').trim();
+  document.body.classList.add('fr-' + eco.use.fr, 'bd-' + eco.use.bd, 'dc-' + eco.use.dc);
+  const d = itemOf(eco.use.dc); if (board && board.setDiceStyle) board.setDiceStyle(d.st);
+  const th = itemOf(eco.use.bd).th; [board, cboard, rboard].forEach(b => { if (b && b.setTheme) b.setTheme(th); });
+  settings.striker = +eco.use.st.slice(2); store.set('settings', settings);
+  if (rboard) rboard.setStrikerStyle(settings.striker);
+}
+
+// Daily reward: a 7-day login streak and one free spin a day.
+const dayKey = (t = Date.now()) => { const d = new Date(t); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+const STREAK = [20, 30, 50, 'gift', 80, 100, 'frame'];
+const WHEEL = [50, 100, 'gift', 20, 200, 'frame', 30, 500];
+const WHEEL_W = [18, 12, 8, 22, 6, 5, 25, 4];
+const WHEEL_COL = ['#e5196f', '#5a2ab5', '#ffc21a', '#1565d8', '#e5196f', '#5a2ab5', '#0b9a6a', '#ff8a00'];
+const dailyDue = () => eco.lastDay !== dayKey() || eco.spunDay !== dayKey();
+function giftPrize(kind) {
+  // gift: 150 coins. frame: a frame you don't have yet, or 250 coins if you have them all.
+  if (kind === 'frame') {
+    const left = SHOP.fr.items.filter(x => !eco.owned.includes(x.id) && x.price <= 500);
+    if (left.length) { const f = left[Math.floor(Math.random() * left.length)]; eco.owned.push(f.id); saveEco(); toast(`🖼 New frame: ${f.name}!`, '#8a5600'); checkBadges(); return; }
+    return addCoins(250, 'bonus');
+  }
+  addCoins(150, 'gift box');
+}
+function renderDaily() {
+  const today = dayKey(), claimed = eco.lastDay === today;
+  const next = claimed ? eco.streak : (eco.lastDay === dayKey(Date.now() - 864e5) ? eco.streak % 7 + 1 : 1);
+  $('dStreak').innerHTML = STREAK.map((r, i) => {
+    const n = i + 1, done = n < next || (claimed && n === next), now = !claimed && n === next;
+    return `<div class="sday ${done ? 'done' : ''} ${now ? 'now' : ''}"><b>Day ${n}</b><span>${r === 'gift' ? '🎁' : r === 'frame' ? '🖼️' : r}</span>${done ? '<i>✓</i>' : ''}</div>`;
+  }).join('');
+  $('dClaim').style.display = claimed ? 'none' : '';
+  $('dClaim').textContent = `Claim Day ${next} reward`;
+  const spun = eco.spunDay === today;
+  $('dSpin').disabled = spun; $('dSpin').textContent = spun ? 'Come back tomorrow for a new spin' : 'Spin for free';
+  if (!$('wheel').innerHTML) {
+    const R = 150, seg = 360 / 8;
+    let h = '';
+    WHEEL.forEach((w, i) => {
+      const a0 = (i * seg - 90) * Math.PI / 180, a1 = ((i + 1) * seg - 90) * Math.PI / 180, am = ((i + .5) * seg - 90) * Math.PI / 180;
+      h += `<path d="M160 160 L${160 + R * Math.cos(a0)} ${160 + R * Math.sin(a0)} A${R} ${R} 0 0 1 ${160 + R * Math.cos(a1)} ${160 + R * Math.sin(a1)}Z" fill="${WHEEL_COL[i]}" stroke="#ffe17a" stroke-width="2"/>`;
+      h += `<text x="${160 + 98 * Math.cos(am)}" y="${160 + 98 * Math.sin(am) + 9}" text-anchor="middle" font-size="${typeof w === 'number' ? 26 : 30}" font-weight="800" fill="${WHEEL_COL[i] === '#ffc21a' ? '#3a1d00' : '#fff'}" font-family="Baloo 2">${w === 'gift' ? '🎁' : w === 'frame' ? '🖼️' : w}</text>`;
+    });
+    $('wheel').innerHTML = `<svg viewBox="0 0 320 320"><circle cx="160" cy="160" r="158" fill="#d99100"/><g id="wheelG">${h}</g></svg><button class="wcenter" id="wCenter">SPIN</button><i class="wptr"></i>`;
+    $('wCenter').onclick = () => $('dSpin').click();
+  }
+}
+$('dClaim').onclick = () => {
+  const today = dayKey(); if (eco.lastDay === today) return;
+  eco.streak = eco.lastDay === dayKey(Date.now() - 864e5) ? eco.streak % 7 + 1 : 1;
+  eco.lastDay = today; eco.bestStreak = Math.max(eco.bestStreak || 0, eco.streak); saveEco();
+  const r = STREAK[eco.streak - 1]; sfx('win'); buzz(40);
+  if (typeof r === 'number') addCoins(r, `Day ${eco.streak} reward`); else giftPrize(r);
+  checkBadges(); renderDaily(); setDailyDot();
+};
+let wheelAt = 0;
+$('dSpin').onclick = () => {
+  if (eco.spunDay === dayKey() || $('dSpin').dataset.busy) return;
+  $('dSpin').dataset.busy = '1'; sfx('click');
+  let r = Math.random() * WHEEL_W.reduce((a, b) => a + b, 0), k = 0;
+  while (r > WHEEL_W[k]) { r -= WHEEL_W[k]; k++; }
+  const seg = 45, target = 360 - (k * seg + seg / 2) + (Math.random() - .5) * 30;
+  wheelAt = wheelAt - (wheelAt % 360) + 360 * 6 + target;
+  const g = $('wheelG'); g.style.transition = 'transform 4.2s cubic-bezier(.12,.7,.15,1)'; g.style.transform = `rotate(${wheelAt}deg)`;
+  const tick = setInterval(() => sfx('tick'), 160);
+  setTimeout(() => {
+    clearInterval(tick); delete $('dSpin').dataset.busy;
+    eco.spunDay = dayKey(); saveEco();
+    const w = WHEEL[k]; sfx('win'); buzz([40, 30, 80]);
+    if (typeof w === 'number') addCoins(w, 'from the wheel'); else giftPrize(w);
+    renderDaily(); setDailyDot();
+  }, 4300);
+};
+function setDailyDot() { const b = $('ecoDaily'); if (b) b.classList.toggle('due', dailyDue()); }
+
+// Shop
+let shopTab = 'fr';
+function shopPreview(it) {
+  const k = it.id.slice(0, 2);
+  if (k === 'fr') return `<div class="av big fr-${it.id}">${faceImg(profile.look, profile.color, pid)}</div>`;
+  if (k === 'dc') return `<div class="dicebtn mini" ${it.id === 'dc0' ? '' : `style="--df:${it.st[0]};--dp:${it.st[1]}"`}>${[0, 2, 4, 6, 8].map(i => '').join('')}<i></i><i class="r"></i><i></i><i class="r"></i><i class="one"></i><i class="r"></i><i></i><i class="r"></i><i></i></div>`;
+  if (k === 'st') return `<span class="stk big ${['blue', 'gold', 'ruby'][+it.id.slice(2)]}"></span>`;
+  return `<div class="bdart bd-${it.id}">${it.art}</div>`;
+}
+function renderShop() {
+  $('shopTabs').innerHTML = Object.entries(SHOP).map(([k, v]) => `<button class="chip ${k === shopTab ? 'on' : ''}" data-st="${k}">${v.name}</button>`).join('');
+  $('shopGrid').className = 'shopgrid' + (shopTab === 'bd' ? ' two' : '');
+  $('shopGrid').innerHTML = SHOP[shopTab].items.map(it => {
+    const own = eco.owned.includes(it.id), on = eco.use[shopTab] === it.id;
+    return `<button class="sitem ${on ? 'on' : ''}" data-it="${it.id}">${on ? '<span class="ontag">ON</span>' : ''}${shopPreview(it)}<b>${it.name}</b>${own ? `<span class="own">${on ? 'Using' : 'Owned · tap to use'}</span>` : `<span class="price"><i class="coin"></i>${coinFmt(it.price)}</span>`}</button>`;
+  }).join('');
+  renderCoins();
+}
+$('shopTabs').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (b) { shopTab = b.dataset.st; sfx('click'); renderShop(); } });
+$('shopGrid').addEventListener('click', e => {
+  const b = e.target.closest('[data-it]'); if (!b) return;
+  const it = itemOf(b.dataset.it), k = it.id.slice(0, 2);
+  if (eco.owned.includes(it.id)) { eco.use[k] = it.id; saveEco(); applyLooks(); sfx('click'); renderShop(); return; }
+  if (eco.coins < it.price) { modal(`<h3>Not enough coins</h3><p>You need ${coinFmt(it.price - eco.coins)} more coins. Win games and spin the daily wheel to get coins.</p><button class="btn gold" id="mOk">OK</button>`); $('mOk').onclick = closeModal; return; }
+  modal(`<div class="buyprev">${shopPreview(it)}</div><h3>Buy ${esc(it.name)}?</h3><p>It costs ${coinFmt(it.price)} coins. You have ${coinFmt(eco.coins)}.</p><button class="btn gold" id="mYes">Buy for ${coinFmt(it.price)} 🪙</button><button class="btn ghost" id="mNo">Not now</button>`);
+  $('mNo').onclick = closeModal;
+  $('mYes').onclick = () => { closeModal(); eco.coins -= it.price; eco.owned.push(it.id); eco.use[k] = it.id; eco.bought = (eco.bought || 0) + 1; saveEco(); applyLooks(); sfx('win'); toast(`${it.name} is yours!`, '#1E9E5A'); checkBadges(); renderShop(); };
+});
+
+// Badges
+const BADGES = [
+  ['first', '🏆', 'First win', 'Win any game', (L, w) => w.length >= 1],
+  ['fire', '🔥', 'On fire', '5 wins in a row', () => stats().streak >= 5 || (eco.bestRun || 0) >= 5],
+  ['chess', '♞', 'Checkmate!', 'Win at Chess', (L, w) => w.some(h => h.game === 'chess')],
+  ['uno', '👑', 'UNO King', 'Win 10 UNO', (L, w) => w.filter(h => h.game === 'patta').length >= 10],
+  ['ludo', '🎲', 'Ludo legend', 'Win 25 Ludo', (L, w) => w.filter(h => h.game === 'ludo').length >= 25],
+  ['carrom', '🎯', 'Carrom champ', 'Win 10 Carrom', (L, w) => w.filter(h => h.game === 'carrom').length >= 10],
+  ['snakes', '🐍', 'Snake charmer', 'Win 5 Snakes & Ladders', (L, w) => w.filter(h => h.game === 'snakes').length >= 5],
+  ['sudoku', '🧠', 'Sudoku sage', 'Solve 25 Sudoku', (L, w) => w.filter(h => h.game === 'sudoku').length >= 25],
+  ['speedy', '⚡', 'Speedy', 'Solve a Sudoku under 5 min', (L, w) => w.some(h => h.game === 'sudoku' && secsOf(h) && secsOf(h) < 300)],
+  ['arrows', '🏹', 'Arrow ace', 'Win 20 Arrow Escape', (L, w) => w.filter(h => h.game === 'arrows').length >= 20],
+  ['helix', '🌀', 'Helix hero', 'Win 10 Helix', (L, w) => w.filter(h => h.game === 'helix').length >= 10],
+  ['artist', '🎨', 'Artist', 'Win a Draw & Guess', (L, w) => w.some(h => h.game === 'draw')],
+  ['social', '🤝', 'Social star', 'Play online with 10 people', L => new Set(L.filter(h => h.mode === 'online').flatMap(h => (h.opp || []).map(o => o.id || o.name))).size >= 10],
+  ['allround', '🌈', 'All-rounder', 'Win 6 different games', (L, w) => new Set(w.map(h => h.game)).size >= 6],
+  ['century', '💯', 'Century', 'Play 100 games', L => L.length >= 100],
+  ['daily', '📅', 'Never miss', '7-day login streak', () => (eco.bestStreak || 0) >= 7],
+  ['shop', '🛍️', 'Shopper', 'Buy something in the shop', () => (eco.bought || 0) >= 1],
+  ['raja', '🤴', 'Maharaja', 'Reach level 15', (L, w) => levelOf(w.length).lv >= 15]
+];
+function checkBadges() {
+  const L = history, w = L.filter(h => h.result === 'won');
+  eco.bestRun = Math.max(eco.bestRun || 0, stats().streak);
+  const fresh = BADGES.filter(b => !eco.badges[b[0]] && b[4](L, w));
+  fresh.forEach(b => { eco.badges[b[0]] = Date.now(); });
+  saveEco();
+  if (fresh.length) setTimeout(() => { toast(`🏅 New badge: ${fresh[0][2]}${fresh.length > 1 ? ` +${fresh.length - 1}` : ''}`, '#8a5600'); sfx('win'); }, 1200);
+}
+function renderBadges() {
+  const n = BADGES.filter(b => eco.badges[b[0]]).length;
+  $('bCount').textContent = `${n} / ${BADGES.length}`;
+  $('bGrid').innerHTML = BADGES.map(b => `<div class="badge2 ${eco.badges[b[0]] ? 'got' : ''}"><div class="bcoin">${b[1]}</div><b>${b[2]}</b><span>${b[3]}</span></div>`).join('');
+}
+
+// Coins for every finished game.
+function rewardGame(h) {
+  const won = h.result === 'won', n = won ? (h.mode === 'online' ? 30 : 20) : 5;
+  eco.lastEarn = { n, at: Date.now(), won, h };
+  addCoins(n); checkBadges();
+}
+
+// Win card: a picture to share on WhatsApp.
+function loadImg(src) { return new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; }); }
+async function winCard(h) {
+  const W = 720, H = 1000, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const x = cv.getContext('2d');
+  const rr = (X, Y, w, hh, r) => { x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + w, Y, X + w, Y + hh, r); x.arcTo(X + w, Y + hh, X, Y + hh, r); x.arcTo(X, Y + hh, X, Y, r); x.arcTo(X, Y, X + w, Y, r); x.closePath(); };
+  let g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#ffe17a'); g.addColorStop(.5, '#d99100'); g.addColorStop(1, '#fff6c4');
+  rr(0, 0, W, H, 56); x.fillStyle = g; x.fill();
+  g = x.createRadialGradient(W / 2, 380, 40, W / 2, 380, 620); g.addColorStop(0, '#8a3ff0'); g.addColorStop(.55, '#4a16a8'); g.addColorStop(1, '#1c0a48');
+  rr(14, 14, W - 28, H - 28, 44); x.fillStyle = g; x.fill();
+  // rays
+  x.save(); x.translate(W / 2, 420); x.globalAlpha = .08; x.fillStyle = '#fff';
+  for (let i = 0; i < 18; i++) { x.rotate(Math.PI / 9); x.beginPath(); x.moveTo(0, 0); x.lineTo(-40, -700); x.lineTo(40, -700); x.fill(); }
+  x.restore();
+  x.textAlign = 'center';
+  x.font = '800 120px "Baloo 2", sans-serif';
+  g = x.createLinearGradient(0, 70, 0, 190); g.addColorStop(0, '#fff6c4'); g.addColorStop(1, '#ffb800');
+  x.lineWidth = 14; x.strokeStyle = '#4a2200'; x.strokeText('I WON!', W / 2, 180); x.fillStyle = g; x.fillText('I WON!', W / 2, 180);
+  x.font = '600 34px "Baloo 2", sans-serif'; x.fillStyle = '#e8dcff';
+  const sub = [GAME_NAME[h.game] || h.game, h.score].filter(Boolean).join(' · ');
+  x.fillText(sub.length > 40 ? sub.slice(0, 40) + '…' : sub, W / 2, 236);
+  const ph = myPhoto ? await loadImg(myPhoto) : null;
+  if (ph) {
+    x.save(); x.beginPath(); x.arc(W / 2, 470, 170, 0, 7); x.lineWidth = 16; x.strokeStyle = '#ffd34d'; x.stroke(); x.clip(); x.drawImage(ph, W / 2 - 170, 300, 340, 340); x.restore();
+  } else {
+    const im = await loadImg(`img/c${ch(profile.look)}-${profile.color}.png`);
+    if (im) { const hh = 430, ww = im.width * hh / im.height; x.drawImage(im, W / 2 - ww / 2, 262, ww, hh); }
+  }
+  // "Balle Balle!" ribbon
+  x.font = '800 54px "Baloo 2", sans-serif'; const bw = x.measureText('Balle Balle!').width + 70;
+  rr(W / 2 - bw / 2, 690, bw, 82, 41); x.fillStyle = '#fff1a8'; x.fill(); rr(W / 2 - bw / 2 + 6, 696, bw - 12, 70, 35); x.fillStyle = '#e5196f'; x.fill();
+  x.fillStyle = '#fff'; x.fillText('Balle Balle!', W / 2, 750);
+  x.font = '700 32px "Baloo 2", sans-serif'; x.fillStyle = '#fff4d6'; x.fillText(profile.name, W / 2, 815);
+  rr(60, 850, W - 120, 110, 26); x.fillStyle = 'rgba(10,4,30,.55)'; x.fill();
+  const icon = await loadImg('img/icon.png'); if (icon) { x.save(); rr(80, 865, 80, 80, 18); x.clip(); x.drawImage(icon, 80, 865, 80, 80); x.restore(); }
+  x.textAlign = 'left'; x.font = '700 32px "Baloo 2", sans-serif'; x.fillStyle = '#fff'; x.fillText('Play with me on Pitara', 180, 900);
+  x.font = '600 26px "Baloo 2", sans-serif'; x.fillStyle = '#ffe17a';
+  x.fillText(G && G.mode === 'online' && G.code ? `Room code ${G.code}` : 'Ludo · Carrom · UNO · Chess & more', 180, 940);
+  return cv.toDataURL('image/png');
+}
+async function shareWin() {
+  const h = history.find(x => x.result === 'won'); if (!h) return;
+  sfx('click');
+  modal('<h3>Making your win card...</h3><div class="spinner"></div>');
+  const url = await winCard(h);
+  const link = 'https://ludo-dhamaal.pitaragames.workers.dev/download';
+  const text = `I won at ${GAME_NAME[h.game] || 'Pitara'}! 🏆 Play with me on Pitara${G && G.mode === 'online' && G.code ? ` — room code ${G.code}` : ''}: ${link}`;
+  modal(`<h3>Share your win</h3><img class="wincard" src="${url}" alt="Your win card"><div class="row gap10 w100"><button class="btn wa grow" id="wcWa">WhatsApp</button><button class="btn ghost" id="wcMore">More</button></div>`);
+  const go = to => { if (window.LDNative && window.LDNative.shareImage) window.LDNative.shareImage(url, text, to); else { const a = document.createElement('a'); a.href = url; a.download = 'pitara-win.png'; a.click(); } closeModal(); };
+  $('wcWa').onclick = () => go('whatsapp'); $('wcMore').onclick = () => go('more');
+}
+$('winShare').onclick = shareWin;
+function winExtras() {
+  const e = eco.lastEarn, fresh = e && Date.now() - e.at < 60000;
+  $('winShare').style.display = fresh && e.won ? '' : 'none';
+  $('winCoins').innerHTML = fresh ? `<i class="coin"></i>+${e.n} coins` : '';
+  $('winCoins').style.display = fresh ? '' : 'none';
+}
+// Home: coins, daily reward, shop, badges
+$('ecoDaily').onclick = () => { sfx('click'); show('daily'); };
+$('ecoShop').onclick = () => { sfx('click'); show('shop'); };
+$('ecoBadges').onclick = () => { sfx('click'); show('badges'); };
+applyLooks(); checkBadges(); renderCoins(); setDailyDot();

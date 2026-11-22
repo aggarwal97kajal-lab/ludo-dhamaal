@@ -28,6 +28,8 @@ export class Chess3D {
     };
     this.raf = requestAnimationFrame(loop);
   }
+  // Board theme from the shop: [sky, floor].
+  setTheme(t) { if (!t) return; this.S.background = new T.Color(t[0]); if (this.S.fog) this.S.fog.color.set(t[0]); }
 
   resize() {
     const w = this.canvas.clientWidth || 360, h = this.canvas.clientHeight || 600;

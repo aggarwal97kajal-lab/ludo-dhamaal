@@ -29,6 +29,8 @@ export class Carrom3D {
     };
     this.raf = requestAnimationFrame(loop);
   }
+  // Board theme from the shop: [sky, floor].
+  setTheme(t) { if (!t) return; this.S.background = new T.Color(t[0]); if (this.S.fog) this.S.fog.color.set(t[0]); }
 
   destroy() { this.dead = true; try { this.R.dispose(); this.R.forceContextLoss(); } catch (e) { /* ignore */ } }
 

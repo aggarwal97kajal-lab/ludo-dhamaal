@@ -108,6 +108,12 @@
       <text x="160" y="98" text-anchor="middle" font-family="Baloo 2" font-weight="800" font-size="86" fill="url(#gtext)">Pitara</text>
       <text x="160" y="98" text-anchor="middle" font-family="Baloo 2" font-weight="800" font-size="86" fill="none" stroke="#fffbe0" stroke-width="1" opacity=".7">Pitara</text>
     </svg><div class="tag">Family game night, every night</div></div>
+    <div class="ecorow">
+      <span class="coinpill"><i class="coin"></i><b>0</b></span>
+      <button class="ecobtn" id="ecoDaily"><i>🎁</i>Daily<em></em></button>
+      <button class="ecobtn" id="ecoShop"><i>🛍️</i>Shop</button>
+      <button class="ecobtn" id="ecoBadges"><i>🏅</i>Badges</button>
+    </div>
     <div class="arches" id="games"></div>
   </div>
 </section>
@@ -313,6 +319,29 @@
   <div class="arover" id="hxOver"><div class="panel col center gap10" id="hxOverBox"></div></div>
 </section>
 
+<section id="daily" class="screen navscreen">
+  <div class="pad col gap14 full">
+    <div class="row gap12"><button class="iconbtn" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 class="grow">Daily reward</h2><span class="coinpill"><i class="coin"></i><b>0</b></span></div>
+    <div class="panel streakbox"><div class="sec">7-day login streak</div><div class="sdays" id="dStreak"></div><button class="btn gold" id="dClaim">Claim</button></div>
+    <div class="wheel" id="wheel"></div>
+    <button class="btn gold" id="dSpin">Spin for free</button>
+    <span class="small muted center">Coins are only for fun items in the shop. No real money.</span>
+  </div>
+</section>
+<section id="shop" class="screen navscreen">
+  <div class="pad col gap14 full">
+    <div class="row gap12"><button class="iconbtn" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 class="grow">Shop</h2><span class="coinpill"><i class="coin"></i><b>0</b></span></div>
+    <div class="chips" id="shopTabs"></div>
+    <div class="shopgrid" id="shopGrid"></div>
+    <span class="small muted center">Win games and spin the daily wheel to earn coins.</span>
+  </div>
+</section>
+<section id="badges" class="screen navscreen">
+  <div class="pad col gap14 full">
+    <div class="row gap12"><button class="iconbtn" data-go="home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><h2 class="grow">Badges</h2><span class="pill gold2" id="bCount"></span></div>
+    <div class="bgrid" id="bGrid"></div>
+  </div>
+</section>
 <section id="win" class="screen">
   <div class="confetti" id="winConf"></div>
   <div class="pad col center gap14 full">
@@ -321,7 +350,9 @@
     <p class="muted" id="winSub"></p>
     <div class="podium" id="podium"></div>
     <div class="col gap10" id="winRest"></div>
+    <span class="wincoins" id="winCoins"></span>
     <div class="col gap10 w100 mt-auto">
+      <button class="btn wa" id="winShare"><svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 21l2.1-5.5A8.4 8.4 0 1 1 21 11.5z"/></svg>Share my win</button>
       <button class="btn gold" id="winAgain">Play again</button>
       <button class="btn ghost" id="winHome">Back to home</button>
     </div>

@@ -143,7 +143,7 @@ export class Board3D {
     S.environment = pm.fromScene(es, 0.04).texture;
     pm.dispose();
     const fl = new T.Mesh(new T.CircleGeometry(60, 64), this.mat('#24135e', { roughness: 0.35, metalness: 0.3 }));
-    fl.rotation.x = -Math.PI / 2; fl.position.y = -1.4; fl.receiveShadow = true; S.add(fl);
+    fl.rotation.x = -Math.PI / 2; fl.position.y = -1.4; fl.receiveShadow = true; S.add(fl); this.floor = fl;
     this.gold = this.mat('#ffc21a', { metalness: 0.9, roughness: 0.2 });
     this.buildBoard();
     this.buildCommon();
@@ -199,15 +199,32 @@ export class Board3D {
     tri([[1.45, -1.45], [1.45, 1.45]], 2); tri([[-1.45, 1.45], [1.45, 1.45]], 3);
   }
 
+  // Board theme from the shop: [sky, floor].
+  setTheme(t) {
+    if (!t) return;
+    this.S.background = new T.Color(t[0]); if (this.S.fog) this.S.fog.color.set(t[0]);
+    if (this.floor) this.floor.material.color.set(t[1]);
+  }
+  // Dice design from the shop: [face, pips, the 1 and 4 pips].
+  setDiceStyle(st) {
+    if (!st || (this.diceStyle && this.diceStyle.join() === st.join())) return;
+    this.diceStyle = st;
+    if (!this.tx || !this.dtx) return;
+    for (let v = 1; v <= 6; v++) { const old = this.tx[v]; this.tx[v] = this.dtx(v, st); if (old) old.dispose(); }
+    const order = [3, 4, 1, 6, 2, 5];
+    this.dm.forEach((m, i) => { m.map = i === 2 && this.shown ? this.tx[this.shown] : this.tx[order[i]]; m.needsUpdate = true; });
+  }
+
   // Dice, sparkles, dust and confetti: the same for every board game.
   buildCommon() {
     const S = this.S, mk = this.mk.bind(this), M = this.mat.bind(this);
 
     // Dice
-    const dtx = v => {
+    const dtx = this.dtx = (v, st) => {
+      st = st || this.diceStyle || ['#ffffff', '#1a1050', '#ff1744'];
       const cv = document.createElement('canvas'); cv.width = cv.height = 256; const x = cv.getContext('2d');
-      x.fillStyle = '#ffffff'; x.fillRect(0, 0, 256, 256); x.strokeStyle = '#e4e6ef'; x.lineWidth = 16; x.strokeRect(0, 0, 256, 256);
-      x.fillStyle = v === 1 || v === 4 ? '#ff1744' : '#1a1050';
+      x.fillStyle = st[0]; x.fillRect(0, 0, 256, 256); x.strokeStyle = 'rgba(0,0,0,.12)'; x.lineWidth = 16; x.strokeRect(0, 0, 256, 256);
+      x.fillStyle = v === 1 || v === 4 ? st[2] : st[1];
       const P = { 1: [[128, 128]], 2: [[70, 70], [186, 186]], 3: [[62, 62], [128, 128], [194, 194]], 4: [[70, 70], [186, 70], [70, 186], [186, 186]], 5: [[62, 62], [194, 62], [128, 128], [62, 194], [194, 194]], 6: [[72, 58], [184, 58], [72, 128], [184, 128], [72, 198], [184, 198]] };
       P[v].forEach(d => { x.beginPath(); x.arc(d[0], d[1], v === 1 ? 40 : 25, 0, 6.28); x.fill(); });
       return new T.CanvasTexture(cv);
@@ -365,7 +382,7 @@ export class Board3D {
   wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   async throwDice(v, sound) {
-    this.dm[2].map = this.tx[v]; this.dm[2].needsUpdate = true;
+    this.shown = v; this.dm[2].map = this.tx[v]; this.dm[2].needsUpdate = true;
     this.diceState = 'roll';
     if (sound) sound('dice');
     await this.tween(1.05, k => {

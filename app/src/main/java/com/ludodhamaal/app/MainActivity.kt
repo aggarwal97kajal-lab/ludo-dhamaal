@@ -289,5 +289,29 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // Share a picture (the win card). to = "whatsapp" opens WhatsApp, anything else shows the share menu.
+        @JavascriptInterface
+        fun shareImage(dataUrl: String, text: String, to: String) {
+            runOnUiThread {
+                try {
+                    val bytes = Base64.decode(dataUrl.substringAfter(","), Base64.DEFAULT)
+                    val dir = java.io.File(cacheDir, "share").apply { mkdirs() }
+                    val f = java.io.File(dir, "pitara-win.png")
+                    f.writeBytes(bytes)
+                    val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.share", f)
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_TEXT, text)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    val wa = Intent(send).apply { setPackage("com.whatsapp") }
+                    if (to == "whatsapp") {
+                        try { startActivity(wa) } catch (e: Exception) { startActivity(Intent.createChooser(send, "Share your win")) }
+                    } else startActivity(Intent.createChooser(send, "Share your win"))
+                } catch (e: Exception) { /* ignore */ }
+            }
+        }
     }
 }
