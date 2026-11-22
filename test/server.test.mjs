@@ -222,4 +222,19 @@ room.clearTurn();
   check(botRolls >= 0 && x.got.filter(m => m.t === 'rolled').length > 2, 'game keeps moving with the bot');
   r.clearTurn(); clearTimeout(r.botTimer); r.s.over = true;
 }
+
+// Ludo modes online: host's mode is used, timer ends the game
+{
+  const r = new Room({}, {}); r.claimed = true; r.code = 'TIMER';
+  const x = mk('x'), y = mk('y');
+  r.onMsg(x, JSON.stringify({ t: 'hello', pid: 'px', name: 'X', game: 'ludo', mode: 'timer', fr: 'fr3' }));
+  r.onMsg(y, JSON.stringify({ t: 'hello', pid: 'py', name: 'Y', fr: 'bad' }));
+  check(x.got.some(m => m.t === 'lobby' && m.players.length === 2 && m.players[0].fr === 'fr3' && m.players[1].fr === 'fr0'), 'frames in lobby');
+  r.onMsg(x, JSON.stringify({ t: 'start' }));
+  check(r.s.mode === 'timer' && r.s.endsAt, 'timer game started');
+  r.s.endsAt = Date.now() + 50; r.armClock();
+  await new Promise(res => setTimeout(res, 150));
+  check(r.s.over && r.s.reason === 'time' && x.got.some(m => m.t === 'passed' && m.reason === 'time'), 'time up ends online game');
+  r.clearTurn(); clearTimeout(r.botTimer);
+}
 console.log(ok ? 'server ok' : 'server FAILED'); process.exit(ok ? 0 : 1);
